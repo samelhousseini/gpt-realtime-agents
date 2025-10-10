@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: agent-call-center
+metadata:
+  template: agent-call-center
+services:
+  audio-backend:
+    project: audio_backend
+    language: python
+    host: containerapp
+    docker:
+      remoteBuild: true

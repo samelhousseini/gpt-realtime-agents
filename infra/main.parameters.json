@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "resourceGroupName": {
+      "value": "${AZURE_RESOURCE_GROUP}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "webRTCUrl": {
+      "value": "${WEBRTC_URL=https://swedencentral.realtimeapi-preview.ai.azure.com/v1/realtimertc}"
+    },
+    "gptRealtimeUrl": {
+      "value": "${AZURE_GPT_REALTIME_URL}"
+    },
+    "gptRealtimeKey": {
+      "value": "${AZURE_GPT_REALTIME_KEY}"
+    },
+    "audioBackendAppExists": {
+      "value": false
+    }
+  }
+
+}

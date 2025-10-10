@@ -1,0 +1,25 @@
+[project]
+name = "gpt-realtime-agents"
+version = "0.1.0"
+description = "Runtime dependencies for GPT Realtime Agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.40.0",
+    "openai[realtime]",
+    "azure-identity>=1.17.1",
+    "ipykernel",
+    "aiohttp",
+    "fastapi",
+    "httpx",
+    "python-dotenv",
+    "uvicorn[standard]",
+    "rich",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
