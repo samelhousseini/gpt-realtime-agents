@@ -91,6 +91,17 @@ pip install -e .
 	```
 5. Browse to `http://localhost:8080/` for the React UI. API endpoints remain available under `/api`.
 
+## Azure deployment (preferred)
+
+The recommended way to stand up this solution in Azure is with the Azure Developer CLI. Run a preview first to review the resource changes, then apply the deployment:
+
+```powershell
+azd provision --preview
+azd up
+```
+
+The `azd up` command handles provisioning the declared infrastructure (Bicep under `infra/`) and publishes the application in a single step.
+
 ## Container deployment
 
 The repository includes a Dockerfile that builds the React app and bundles it with the FastAPI service.
