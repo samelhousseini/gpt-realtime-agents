@@ -27,47 +27,47 @@ Unified Azure OpenAI Realtime solution that:
 
 ## Install dependencies
 
-	Recommended (uv)
-	uv is a fast Python package and environment manager. It creates an isolated virtual environment and resolves/installs dependencies quicker than pip.
+Recommended (uv)
+uv is a fast Python package and environment manager. It creates an isolated virtual environment and resolves/installs dependencies quicker than pip.
 
-	Install uv
-	- macOS / Linux:
-	```bash
-	curl -LsSf https://astral.sh/uv/install.sh | sh
-	# then ensure ~/.local/bin (or the printed path) is on PATH
-	```
-	- Windows (PowerShell):
-	```powershell
-	irm https://astral.sh/uv/install.ps1 | iex
-	```
-	(Or with winget: winget install astral-sh.uv)
+Install uv
+- macOS / Linux:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# then ensure ~/.local/bin (or the printed path) is on PATH
+```
+- Windows (PowerShell):
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+(Or with winget: winget install astral-sh.uv)
 
-	Create & activate a virtual environment (optional; uv can also auto-manage one)
-	```bash
-	uv venv
-	# Linux/macOS
-	source .venv/bin/activate
-	# Windows PowerShell
-	.venv\Scripts\Activate.ps1
-	```
+Create & activate a virtual environment (optional; uv can also auto-manage one)
+```bash
+uv venv
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+```
 
-	Install project (editable) with uv:
-	```bash
-	uv pip install -e .
-	```
-	(Uses pyproject.toml for dependency resolution.)
+Install project (editable) with uv:
+```bash
+uv pip install -e .
+```
+(Uses pyproject.toml for dependency resolution.)
 
-	Alternative (pip)
-	```bash
-	python -m venv .venv
-	# Linux/macOS
-	source .venv/bin/activate
-	# Windows PowerShell
-	.venv\Scripts\Activate.ps1
+Alternative (pip)
+```bash
+python -m venv .venv
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
 
-	pip install --upgrade pip
-	pip install -e .
-	```
+pip install --upgrade pip
+pip install -e .
+```
 
 
 ## Run the stack locally
