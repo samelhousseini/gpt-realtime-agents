@@ -13,6 +13,14 @@ The quickest way to stand up the full solution is with the [Azure Developer CLI 
 	- [`azd` CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 	- Azure CLI (required by `azd`) and authenticated session: `az login`
 2. **Prepare environment settings**
+	Create/maintain a local `.env` file and fill in the above environment variables (from `.env.sample`) 
+	Update the placeholders in `.env`:
+	- `AZURE_GPT_REALTIME_URL = https://<resource>.openai.azure.com/openai/realtimeapi/sessions?api-version=2025-04-01-preview`
+	- `WEBRTC_URL = https://<region>.realtimeapi-preview.ai.azure.com/v1/realtimertc`
+	- `AZURE_GPT_REALTIME_KEY` only when not relying on Managed Identity
+
+	_Alternative_: 
+	
 	```powershell
 	azd env new
 	azd env set AZURE_GPT_REALTIME_URL https://<resource>.openai.azure.com/openai/realtimeapi/sessions?api-version=2025-04-01-preview
@@ -20,8 +28,8 @@ The quickest way to stand up the full solution is with the [Azure Developer CLI 
 	# Optional when using API key auth instead of Managed Identity
 	azd env set AZURE_GPT_REALTIME_KEY <your-key>
 	```
-	_Alternative_: create/maintain a local `.env` file (from `.env.sample`) 
 	
+
 3. **Provision and deploy**
 	```powershell
 	azd provision --preview   # optional dry run
