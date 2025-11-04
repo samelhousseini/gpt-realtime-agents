@@ -50,6 +50,16 @@ acs_connection_string = os.environ.get("AZURE_ACS_CONN_KEY")
 acs_callback_path = os.environ.get("CALLBACK_EVENTS_URI")
 acs_media_streaming_websocket_host = os.environ.get("CALLBACK_URI_HOST")
 
+
+print("LLM Endpoint WS:", llm_endpoint_ws)
+print("LLM Deployment:", llm_deployment)
+print("LLM Key:", llm_key)
+print("ACS Source Number:", acs_source_number)
+print("ACS Connection String:", acs_connection_string)
+print("ACS Callback Path:", acs_callback_path)
+print("ACS Media Streaming WebSocket Host:", acs_media_streaming_websocket_host)
+
+
 llm_credential = AzureKeyCredential(llm_key) if llm_key else None
 
 # Global instances (initialized on startup)

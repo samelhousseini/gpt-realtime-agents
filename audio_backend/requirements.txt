@@ -9,3 +9,7 @@ httpx
 python-dotenv
 uvicorn[standard]
 rich
+azure-eventgrid==4.20.0
+azure-communication-callautomation==1.4.0b1
+aiohttp==3.11.10
+aiortc
