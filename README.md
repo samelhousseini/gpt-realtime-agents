@@ -1,16 +1,20 @@
-# gpt-realtime-agents
+# Agentic Call Center with AI Voice Models
 
-Unified Azure OpenAI Realtime solution that:
-- Hosts a FastAPI backend which issues ephemeral session keys, resolves function calls, and now serves a React single-page application.
-- Ships a modern React/Vite frontend cloned from [`contoso-voicecare-ai-unified`](https://github.com/samelhousseini/contoso-voicecare-ai-unified) for multi-industry support experiences.
+An AI voice interaction platform that enables businesses to deploy intelligent conversational agents across web and phone channels. This solution delivers natural, real-time voice conversations powered by Azure OpenAI's Realtime API, supporting 24/7 automated customer engagement with seamless human escalation when needed. Built for scalability and industry flexibility, it provides a unified framework for deploying AI voice agents in telecommunications, healthcare, retail, and other customer-facing sectors.
+
+### Purpose
+The goal of this IP is to help customers quickly build a Proof of Concept for an Agentic Call Center, showcasing the capabilities of our AI voice-to-voice models and agent-based design while integrating seamlessly with their existing web service infrastructure.
 
 
 ## Architecture Overview
 
 This solution provides two integration modes:
 
-1. **Web-based Realtime Chat** - Direct browser-to-AI communication via WebRTC
+1. **Web-based Realtime Chat** - Direct browser-to-AI or mobile-app-to-AI communication via WebRTC
 2. **Phone Call Integration** (Optional) - PSTN phone calls bridged to AI via Azure Communication Services over Web Sockets
+
+![Architecture](./images/architecture.png)
+
 
 ### Prerequisites
 
@@ -212,4 +216,8 @@ The frontend automatically advertises whatever tools the backend exposes and for
 
 ## Credits
 
-Helper classes and functions for supporting Azure Communications Services, especially the translation of audio message formats between ACS and the AI models, have been taken and adapted from the this [repo](https://github.com/Azure-Samples/realtime-call-center-accelerator), which was built by Robin Thiel et al. Thank you!
+Helper classes and functions for supporting Azure Communications Services, especially the translation of audio message formats between ACS and the AI models, have been taken and adapted from the the below repos:
+1. **Realtime Call Center Accelerator** - [link](https://github.com/Azure-Samples/realtime-call-center-accelerator)
+2. **Call Center Voice Agent Accelerator** - [link](https://github.com/Azure-Samples/call-center-voice-agent-accelerator)
+
+Thank you!

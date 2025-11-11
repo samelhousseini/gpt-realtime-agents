@@ -61,17 +61,12 @@ class RTMiddleTier:
 
                 case "session.created":
                     session = message["session"]
-                    # Hide the instructions, tools and max tokens from clients, if we ever allow client-side
-                    # tools, this will need updating
                     session["instructions"] = ""
                     session["tools"] = []
                     session["tool_choice"] = "none"
                     session["max_response_output_tokens"] = None
 
                 case "session.updated":
-                    # Prompt the model to take over the conversation and talk whenever a session was updated
-                    # This is also the case, when the client connects for the first time
-                    # This ensures, that the model starts the conversation the moment the client connects
                     await server_ws.send_json({
                         "type": "response.create"
                     })
@@ -132,20 +127,6 @@ class RTMiddleTier:
                             }
                         })
 
-                        # if result.destination == ToolResultDirection.TO_CLIENT:
-                        #     # Only send extra messages to clients that are not ACS audio streams
-                        #     if is_acs_audio_stream == False:
-                        #         console.log(f"[CLIENT EVENT] Sending tool result to web client: {item['name']}")
-                        #         # TODO: this will break clients that don't know about this extra message, rewrite
-                        #         # this to be a regular text message with a special marker of some sort
-                        #         await client_ws.send_json({
-                        #             "type": "extension.middle_tier_tool_response",
-                        #             "previous_item_id": tool_call.previous_id,
-                        #             "tool_name": item["name"],
-                        #             "tool_result": result.to_text()
-                        #         })
-                        #     else:
-                        #         console.log(f"[SERVER EVENT] Tool result for {item['name']} not sent to ACS client (audio stream)")
                         message = None
 
                 case "response.done":
@@ -167,22 +148,8 @@ class RTMiddleTier:
                         if replace:
                             message = json.loads(json.dumps(message)) # TODO: This is a hack to make the message a dict again. Find out, what 'replace' does
 
-                # This happens when OpenAI detects, that the user starts speaking and won't continue to speak and send audio.
-                # In this case, we don't want to send the unplayed audio buffer to the client anymore.
-                # For the web app, we pass this message to the client, so it can clear the audio buffer.
-                # For Azure Communication Services, we don't need to do anything here. The transform_openai_to_acs_format function
-                # will handle this message and clear the audio buffer.
                 case "input_audio_buffer.speech_started":
                     console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_started")
-
-                    # TODO: Add Truncation
-                    # if message["item_id"]:
-                    #     await server_ws.send_json({
-                    #         "type": "conversation.item.truncate",
-                    #         "item_id": message['item_id'],
-                    #         "audio_end_ms": ??? # Set this to let the model know, how much audio has been played (https://platform.openai.com/docs/api-reference/realtime-client-events/conversation/item/truncate)
-                    #     })
-                    pass
 
                 case "input_audio_buffer.speech_stopped":
                     console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_stopped")
@@ -264,15 +231,6 @@ class RTMiddleTier:
             match data["type"]:
                 case "session.update":
                     session = data.get("session", {})
-                    # session["voice"] = self.selected_voice
-                    # if self.system_message is not None:
-                    #     session["instructions"] = self.system_message
-                    # if self.temperature is not None:
-                    #     session["temperature"] = self.temperature
-                    # if self.max_tokens is not None:
-                    #     session["max_response_output_tokens"] = self.max_tokens
-                    # if self.disable_audio is not None:
-                    #     session["disable_audio"] = self.disable_audio
                     session["instructions"] = self.system_message
                     session["tool_choice"] = "auto" if len(self.tools) > 0 else "none"
                     session["tools"] = [tool.schema for tool in self.tools.values()]
@@ -315,8 +273,6 @@ class RTMiddleTier:
 
     async def forward_messages(self, ws: web.WebSocketResponse, is_acs_audio_stream: bool):
         async with aiohttp.ClientSession(base_url=self.endpoint) as session:
-            params = { "api-version": "2024-10-01-preview", "deployment": self.deployment }
-            params = { "api-version": "2025-04-01-preview", "deployment": self.deployment }
             params = { "model": self.deployment }
 
             headers = {}
@@ -328,14 +284,14 @@ class RTMiddleTier:
                 headers = { "api-key": self.key }
             else:
                 if self._token_provider is not None:
-                    headers = { "Authorization": f"Bearer {self._token_provider()}" } # NOTE: no async version of token provider, maybe refresh token on a timer?
+                    headers = { "Authorization": f"Bearer {self._token_provider()}" } 
                 else:
                     raise ValueError("No token provider available")
 
-            console.log("Connecting to OpenAI Realtime API WebSocket...")
-            console.log(f"Headers: {headers}")
-            console.log(f"Params: {params}")
-            console.log(f"Endpoint: {self.endpoint}/openai/v1/realtime")
+            # console.log("Connecting to OpenAI Realtime API WebSocket...")
+            # console.log(f"Headers: {headers}")
+            # console.log(f"Params: {params}")
+            # console.log(f"Endpoint: {self.endpoint}/openai/v1/realtime")
 
             
             # Connect to the OpenAI Realtime API WebSocket
