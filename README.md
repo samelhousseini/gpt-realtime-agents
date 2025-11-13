@@ -181,7 +181,7 @@ docker run -p 8080:8080 --env-file .env gpt-realtime-agents
 
 This multi-stage build does the following:
 - Installs Node dependencies, runs `npm ci`, and executes `npm run build` for the React project.
-- Installs Python dependencies, copies the FastAPI backend, and bundles the built frontend into `audio_backend/frontend_dist`.
+- Installs Python dependencies, copies the FastAPI backend, and bundles the built frontend into `frontend/dist`.
 - Launches the combined application using Uvicorn on port 8080.
 
 ### Endpoints
@@ -200,20 +200,9 @@ This multi-stage build does the following:
 - `POST /api/acs` – handle ACS outbound call events (CloudEvents format)
 - `POST /api/callbacks` – handle ACS callback events from Event Grid (inbound calls, call status updates)
 
-## Browser demo (`audio.html`)
-- Update `CLIENT_CONFIG.backendBaseUrl` if your backend runs on a different host/port.
-- Serve the file from a static server (for example `python -m http.server 5500`) and open it in a modern browser.
-- Click **Start Session** to negotiate WebRTC. When the model asks for `generate_horoscope`, the page will call the backend, receive the horoscope, and feed it back to the model automatically.
-
-## Python CLI demo (`audio.py`)
-```powershell
-uv run python audio.py
-```
-
-Type messages and inspect the streamed text/audio output. Enter `q` to exit.
 
 ## Extending function tools
-Add new entries to the `TOOLS_REGISTRY` in `backend.py`. Each tool defines:
+Add new entries to the `TOOLS_REGISTRY` in `audio_backend/tools_registry.py`. Each tool defines:
 - The `definition` sent to Azure Realtime (matching the OpenAI schema)
 - The `executor` coroutine/function that returns a JSON-serializable dictionary
 
