@@ -3,7 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SessionState } from '@/lib/types';
+import { ConnectionMode } from '@/hooks/use-realtime-session';
 import { Phone, PhoneX, Microphone, MicrophoneSlash, PhoneCall } from '@phosphor-icons/react';
 import { VoiceActivityIndicator } from '@/components/VoiceActivityIndicator';
 import { WaveformVisualizer } from '@/components/WaveformVisualizer';
@@ -12,11 +14,11 @@ import { useVoiceActivity } from '@/hooks/use-voice-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CLIENT_CONFIG } from '@/lib/constants';
 import { toast } from 'sonner';
-import logo from '../../logo.png';
+import logo from '@/assets/images/logo.png';
 
 interface CallControlsProps {
   sessionState: SessionState;
-  onStartCall: () => void;
+  onStartCall: (connectionMode: ConnectionMode) => void;
   onEndCall: () => void;
   onToggleMute: () => void;
   getCurrentMediaStream: () => MediaStream | null;
@@ -27,6 +29,7 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
   const mediaStream = getCurrentMediaStream();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isCallingMobile, setIsCallingMobile] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('webrtc');
   
   const voiceActivity = useVoiceActivity(
     sessionState.status === 'connected' && !sessionState.isMuted ? mediaStream : null,
@@ -98,15 +101,16 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
   return (
     <TooltipProvider>
       <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-4">
-            <img src={logo} alt="VoiceCare Logo" className="h-12" />
+        <div className="flex items-center justify-between p-4 gap-3 min-h-[80px]">
+          {/* Left Section: Logo, Start Call Button, Connection Mode Dropdown */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <img src={logo} alt="VoiceCare Logo" className="h-12 flex-shrink-0" />
             <Button
-              onClick={isConnected ? onEndCall : onStartCall}
+              onClick={isConnected ? onEndCall : () => onStartCall(connectionMode)}
               disabled={isConnecting}
               variant={isConnected ? "destructive" : "default"}
               size="lg"
-              className={`gap-2 px-6 py-3 text-base font-semibold ${
+              className={`gap-2 px-6 py-3 text-base font-semibold flex-shrink-0 ${
                 !isConnected && !isConnecting ? 'start-call-pulse' : ''
               }`}
             >
@@ -123,43 +127,20 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
               )}
             </Button>
 
-            {/* Vertical Separator */}
-            <div className="h-8 w-px bg-border" />
-
-            {/* Outbound Calling */}
-            <div className="flex items-center gap-2">
-              <Input
-                type="tel"
-                placeholder="Enter your mobile number"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCallMobile()}
-                className="w-64"
-                disabled={isCallingMobile}
-              />
-              <Button
-                onClick={handleCallMobile}
-                disabled={isCallingMobile || !phoneNumber.trim()}
-                variant="default"
-                size="lg"
-                className="gap-2"
-              >
-                <PhoneCall size={20} />
-                {isCallingMobile ? 'Calling...' : 'Call Mobile'}
-              </Button>
-            </div>
-
-            {/* Vertical Separator */}
-            <div className="h-8 w-px bg-border" />
-
-            {/* Inbound Calling Info */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg">
-              <Phone size={20} className="text-primary" />
-              <span className="text-sm font-medium">Call Toll-Free: +1 866 709 9132</span>
-            </div>
+            {/* Connection Mode Dropdown */}
+            <Select value={connectionMode} onValueChange={(value: ConnectionMode) => setConnectionMode(value)}>
+              <SelectTrigger className="w-[180px] h-10 flex-shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="webrtc">WebRTC Direct</SelectItem>
+                <SelectItem value="websocket-direct">WebSocket Direct</SelectItem>
+                <SelectItem value="voice-live">Voice Live API</SelectItem>                
+              </SelectContent>
+            </Select>
             
             {isConnected && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <Button
                   onClick={onToggleMute}
                   variant="outline"
@@ -214,7 +195,7 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
             {isConnected && !sessionState.isMuted && !isMobile && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg flex-shrink-0">
                     <WaveformVisualizer
                       mediaStream={mediaStream}
                       isActive={voiceActivity.isActive}
@@ -228,13 +209,45 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Live audio waveform - shows your voice activity</p>
                 </TooltipContent>
               </Tooltip>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Center Section: Mobile Calling Controls */}
+          <div className="flex items-center gap-2 flex-1 justify-center min-w-0">
+            <Input
+              type="tel"
+              placeholder="Enter your mobile number"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCallMobile()}
+              className="w-full max-w-[220px]"
+              disabled={isCallingMobile}
+            />
+            <Button
+              onClick={handleCallMobile}
+              disabled={isCallingMobile || !phoneNumber.trim()}
+              variant="default"
+              size="lg"
+              className="gap-2 flex-shrink-0 whitespace-nowrap"
+            >
+              <PhoneCall size={20} />
+              {isCallingMobile ? 'Calling...' : 'Call Mobile'}
+            </Button>
+            
+            {/* Vertical Separator */}
+            <div className="h-8 w-px bg-border mx-2 flex-shrink-0" />
+
+            {/* Inbound Calling Info */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg flex-shrink-0">
+              <Phone size={20} className="text-primary" />
+              <span className="text-sm font-medium whitespace-nowrap">Call Toll-Free: +1 866 709 9132</span>
+            </div>
+          </div>
+
+          {/* Right Section: Status Badge */}
+          <div className="flex items-center gap-3 flex-shrink-0">
             <Badge variant={getStatusVariant()}>
               {getStatusText()}
               {sessionState.isMuted && ' (Muted)'}

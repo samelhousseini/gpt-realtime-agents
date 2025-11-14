@@ -42,13 +42,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["ACS Phone Calls"])
 
 # Environment variables - matching .env file
-llm_endpoint_ws = os.environ.get("AZURE_OPENAI_ENDPOINT_WS")
-llm_deployment = os.environ.get("AZURE_OPENAI_MODEL_NAME")
-llm_key = os.environ.get("AZURE_OPENAI_API_KEY")
-acs_source_number = os.environ.get("ACS_PHONE_NUMBER")
-acs_connection_string = os.environ.get("AZURE_ACS_CONN_KEY")
-acs_callback_path = os.environ.get("CALLBACK_EVENTS_URI")
-acs_media_streaming_websocket_host = os.environ.get("CALLBACK_URI_HOST")
+llm_endpoint_ws = os.environ.get("AZURE_OPENAI_ENDPOINT_WS").replace('"', '').replace("'", "")
+llm_deployment = os.environ.get("AZURE_OPENAI_MODEL_NAME").replace('"', '').replace("'", "")
+llm_key = os.environ.get("AZURE_OPENAI_API_KEY").replace('"', '').replace("'", "")
+acs_source_number = os.environ.get("ACS_PHONE_NUMBER").replace('"', '').replace("'", "")
+acs_connection_string = os.environ.get("AZURE_ACS_CONN_KEY").replace('"', '').replace("'", "")
+acs_callback_path = os.environ.get("CALLBACK_EVENTS_URI").replace('"', '').replace("'", "")
+acs_media_streaming_websocket_host = os.environ.get("CALLBACK_URI_HOST").replace('"', '').replace("'", "")
 
 
 print("LLM Endpoint WS:", llm_endpoint_ws)
