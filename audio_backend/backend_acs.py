@@ -20,6 +20,9 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from rich.console import Console
+from common.config import get_voice_live_config
+from acs.bridges.gpt_realtime_bridge import GptRealtimeBridge
+from acs.bridges.voice_live_bridge import VoiceLiveBridge
 
 # Add acs directory to path for imports
 print(f"Sys importing {str(Path(__file__).parent )}")
@@ -66,6 +69,8 @@ llm_credential = AzureKeyCredential(llm_key) if llm_key else None
 caller: Optional[AcsCaller] = None
 rtmt: Optional[RTMiddleTier] = None
 event_handler: Optional[EventHandler] = None
+gpt_bridge: Optional[GptRealtimeBridge] = None
+voice_live_bridge: Optional[VoiceLiveBridge] = None
 
 
 class PhoneCallRequest(BaseModel):
@@ -74,85 +79,11 @@ class PhoneCallRequest(BaseModel):
 
 
 # ============================================================================
-# FastAPI WebSocket Adapter for RTMiddleTier
-# ============================================================================
-class FastAPIWebSocketAdapter:
-    """
-    Adapter to make FastAPI WebSocket compatible with aiohttp WebSocketResponse API.
-    
-    This adapter allows RTMiddleTier (which expects aiohttp WebSocketResponse) to work 
-    seamlessly with FastAPI WebSocket without any modifications to RTMiddleTier code.
-    """
-    
-    def __init__(self, websocket: WebSocket):
-        self.websocket = websocket
-        self.headers = {}  # FastAPI WebSocket doesn't expose headers the same way
-        self._closed = False
-    
-    async def send_str(self, data: str):
-        """Send text data to the WebSocket"""
-        if not self._closed:
-            try:
-                await self.websocket.send_text(data)
-            except Exception as e:
-                console.log(f"[ADAPTER] Error sending text: {e}")
-                self._closed = True
-    
-    async def send_json(self, data: dict):
-        """Send JSON data to the WebSocket"""
-        if not self._closed:
-            try:
-                await self.websocket.send_json(data)
-            except Exception as e:
-                console.log(f"[ADAPTER] Error sending JSON: {e}")
-                self._closed = True
-    
-    def __aiter__(self):
-        """Return self as async iterator"""
-        return self
-    
-    async def __anext__(self):
-        """Async iterator for receiving messages - mimics aiohttp.WSMsgType"""
-        try:
-            # Receive message from FastAPI WebSocket
-            raw_message = await self.websocket.receive()
-            
-            # Handle different message types
-            if "text" in raw_message:
-                # Create an aiohttp-compatible message object with .type and .data attributes
-                ws_message = type('WSMessage', (), {
-                    'type': aiohttp.WSMsgType.TEXT,
-                    'data': raw_message["text"]
-                })()
-                return ws_message
-            elif "bytes" in raw_message:
-                ws_message = type('WSMessage', (), {
-                    'type': aiohttp.WSMsgType.BINARY,
-                    'data': raw_message["bytes"]
-                })()
-                return ws_message
-            elif raw_message.get("type") == "websocket.disconnect":
-                self._closed = True
-                raise StopAsyncIteration
-            else:
-                # Unknown message type, continue iteration
-                return await self.__anext__()
-                
-        except WebSocketDisconnect:
-            self._closed = True
-            raise StopAsyncIteration
-        except Exception as e:
-            console.log(f"[ADAPTER] Error receiving message: {e}")
-            self._closed = True
-            raise StopAsyncIteration
-
-
-# ============================================================================
 # Initialization Function
 # ============================================================================
 async def initialize_acs_components():
     """Initialize ACS components with configuration"""
-    global caller, rtmt, event_handler
+    global caller, rtmt, event_handler, gpt_bridge, voice_live_bridge
     
     console.log("[ACS INIT] Initializing ACS phone call components...")
     
@@ -192,6 +123,7 @@ async def initialize_acs_components():
     if llm_endpoint_ws and llm_deployment and llm_credential:
         rtmt = RTMiddleTier(llm_endpoint_ws, llm_deployment, llm_credential)
         rtmt.system_message = system_prompt
+        gpt_bridge = GptRealtimeBridge(rtmt)
         
         # Add example tool (can be customized)
         _weather_tool_schema = {
@@ -235,6 +167,14 @@ async def initialize_acs_components():
         event_handler = EventHandler(caller)
         console.log("[ACS INIT] ✅ Event handler initialized")
     
+    # Setup placeholder Voice Live bridge if configuration is available
+    try:
+        voice_live_config = get_voice_live_config()
+        voice_live_bridge = VoiceLiveBridge(voice_live_config)
+        console.log("[ACS INIT] ✅ Voice Live bridge placeholder configured")
+    except Exception as exc:
+        console.log(f"[ACS INIT] ⚠️ Voice Live config unavailable: {exc}")
+
     console.log("[ACS INIT] 🚀 ACS phone integration ready")
 
 
@@ -292,19 +232,14 @@ async def acs_bridge_handler(websocket: WebSocket):
     await websocket.accept()
     console.log("[ACS-BRIDGE] 🔌 Azure Communication Services connected to WebSocket")
     
-    if rtmt is None:
-        console.log("[ACS-BRIDGE] ❌ RTMiddleTier not initialized")
-        await websocket.close(code=1011, reason="RTMiddleTier not configured")
+    if gpt_bridge is None:
+        console.log("[ACS-BRIDGE] ❌ GPT bridge not initialized")
+        await websocket.close(code=1011, reason="Bridge not configured")
         return
     
     try:
         console.log("[ACS-BRIDGE] Using WebSocket path: ACS → WebSocket → Python → WebSocket → Azure OpenAI")
-        
-        # Create adapter to make FastAPI WebSocket compatible with aiohttp API
-        adapter = FastAPIWebSocketAdapter(websocket)
-        
-        # Forward messages using WebSocket-only path (is_acs_audio_stream=True)
-        await rtmt.forward_messages(adapter, is_acs_audio_stream=True)
+        await gpt_bridge.handle(websocket)
         
         console.log("[ACS-BRIDGE] WebSocket connection closed normally")
     except WebSocketDisconnect:
@@ -315,6 +250,29 @@ async def acs_bridge_handler(websocket: WebSocket):
         console.log(f"[ACS-BRIDGE] Traceback: {traceback.format_exc()}")
         try:
             await websocket.close(code=1011, reason="Internal error")
+        except:
+            pass
+
+
+@router.websocket("/api/voice-live-acs")
+async def voice_live_bridge_handler(websocket: WebSocket):
+    """WebSocket endpoint for ACS calls routed through Voice Live."""
+    await websocket.accept()
+    console.log("[VOICE-LIVE BRIDGE] 🔌 ACS connected to Voice Live route")
+
+    if voice_live_bridge is None:
+        console.log("[VOICE-LIVE BRIDGE] ❌ Voice Live bridge not configured")
+        await websocket.close(code=1011, reason="Voice Live not configured")
+        return
+
+    try:
+        await voice_live_bridge.handle(websocket)
+    except WebSocketDisconnect:
+        console.log("[VOICE-LIVE BRIDGE] Client disconnected")
+    except Exception as exc:
+        console.log(f"[VOICE-LIVE BRIDGE] ❌ Error: {exc}")
+        try:
+            await websocket.close(code=1011, reason="Voice Live bridge error")
         except:
             pass
 

@@ -11,7 +11,7 @@ let cachedToolChoice: string = "auto";
 export interface SessionCredentials {
   sessionId: string;
   ephemeralKey: string;
-  webrtcUrl: string;
+  realtimeUrl: string;
 }
 
 export interface ToolsData {
@@ -73,7 +73,7 @@ export async function requestSessionCredentials(): Promise<SessionCredentials> {
   return {
     sessionId: payload.session_id,
     ephemeralKey: payload.ephemeral_key,
-    webrtcUrl: payload.webrtc_url,
+    realtimeUrl: payload.realtimeUrl,
   };
 }
 

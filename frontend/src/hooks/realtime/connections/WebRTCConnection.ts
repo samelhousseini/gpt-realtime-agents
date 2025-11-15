@@ -80,7 +80,7 @@ export class WebRTCConnection extends RealtimeSessionBase {
 
     // Exchange SDP with server
     const sdpResponse = await fetch(
-      `${credentials.webrtcUrl}?model=${encodeURIComponent(CONFIG.deployment)}`,
+      `${credentials.realtimeUrl}?model=${encodeURIComponent(CONFIG.deployment)}`,
       {
         method: "POST",
         body: offer.sdp,
