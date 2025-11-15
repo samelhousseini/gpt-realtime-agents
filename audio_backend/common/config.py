@@ -38,7 +38,8 @@ class VoiceLiveConfig:
     api_key: str
     default_model: str
     default_voice: str
-
+    region: str
+    api_version: str
 
 @dataclass(frozen=True)
 class AcsConfig:
@@ -66,11 +67,15 @@ def get_voice_live_config() -> VoiceLiveConfig:
     api_key = _clean_env("AZURE_VOICELIVE_API_KEY")
     default_model = _clean_env("AZURE_VOICELIVE_MODEL", default="gpt-realtime")
     default_voice = _clean_env("AZURE_VOICELIVE_VOICE", default="en-US-Ava:DragonHDLatestNeural")
+    region = _clean_env("AZURE_VOICELIVE_REGION", default="swedencentral")
+    api_version = _clean_env("AZURE_VOICELIVE_API_VERSION", default="2025-05-01-preview")
     return VoiceLiveConfig(
         endpoint=endpoint.rstrip("/"),
         api_key=api_key,
         default_model=default_model,
         default_voice=default_voice,
+        region=region,
+        api_version=api_version
     )
 
 
