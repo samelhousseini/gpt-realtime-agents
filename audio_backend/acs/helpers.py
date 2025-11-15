@@ -9,7 +9,15 @@ from openai.types.beta.realtime.session_update_event import Session, SessionTurn
 from typing import Any, Literal, Optional
 from tools import Tool
 
-def transform_acs_to_openai_format(msg_data: Any, model: Optional[str], tools: dict[str, Tool], system_message: Optional[str], temperature: Optional[float], max_tokens: Optional[int], disable_audio: Optional[bool], voice: str) -> InputAudioBufferAppendEvent | SessionUpdateEvent | Any | None:
+def transform_acs_to_openai_format(msg_data: Any, 
+                                   model: Optional[str], 
+                                   tools: dict[str, Tool], 
+                                   system_message: Optional[str], 
+                                   temperature: Optional[float], 
+                                   max_tokens: Optional[int], 
+                                   disable_audio: Optional[bool], 
+                                   voice: str,
+                                   use_voicelive_for_acs: bool = False) -> InputAudioBufferAppendEvent | SessionUpdateEvent | Any | None:
     """
     Transforms websocket message data from Azure Communication Services (ACS) to the OpenAI Realtime API format.
     Args:
@@ -26,29 +34,41 @@ def transform_acs_to_openai_format(msg_data: Any, model: Optional[str], tools: d
     # Set the initial configuration for the OpenAI Realtime API by sending a session.update message.
     try:
         if msg_data["kind"] == "AudioMetadata":
-            oai_message = {
-                "type": "session.update",
-                "session": {
-                    "type": "realtime",
-                    "tool_choice": "auto" if len(tools) > 0 else "none",
-                    "tools": [tool.schema for tool in tools.values()],
-                    # "turn_detection": {
-                    #     "type": 'server_vad',
-                    #     "threshold": 0.7, # Adjust if necessary
-                    #     "prefix_padding_ms": 300, # Adjust if necessary
-                    #     "silence_duration_ms": 500 # Adjust if necessary
-                    # },
+            if use_voicelive_for_acs:
+                oai_message = {
+                    "type": "session.update",
+                    "session": {
+                        "type": "realtime",
+                        "tool_choice": "auto" if len(tools) > 0 else "none",
+                        "tools": [tool.schema for tool in tools.values()],
+                        "turn_detection": {
+                            "type": 'server_vad',
+                            "threshold": 0.7, # Adjust if necessary
+                            "prefix_padding_ms": 300, # Adjust if necessary
+                            "silence_duration_ms": 500 # Adjust if necessary
+                        },
+                    }
                 }
-            }
+
+                if temperature is not None:
+                    oai_message["session"]["temperature"] = temperature
+                if max_tokens is not None:
+                    oai_message["session"]["max_response_output_tokens"] = max_tokens
+                if disable_audio is not None:
+                    oai_message["session"]["disable_audio"] = disable_audio
+            else:
+                oai_message = {
+                    "type": "session.update",
+                    "session": {
+                        "type": "realtime",
+                        "tool_choice": "auto" if len(tools) > 0 else "none",
+                        "tools": [tool.schema for tool in tools.values()],
+                    }
+                }
 
             if system_message is not None:
                 oai_message["session"]["instructions"] = system_message
-            # if temperature is not None:
-            #     oai_message["session"]["temperature"] = temperature
-            # if max_tokens is not None:
-            #     oai_message["session"]["max_response_output_tokens"] = max_tokens
-            # if disable_audio is not None:
-            #     oai_message["session"]["disable_audio"] = disable_audio
+
 
         # Message from Azure Communication Services with audio data.
         # Transform the message to the OpenAI Realtime API format.

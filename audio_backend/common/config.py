@@ -40,6 +40,7 @@ class VoiceLiveConfig:
     default_voice: str
     region: str
     api_version: str
+    use_voicelive_for_acs: bool = False
 
 @dataclass(frozen=True)
 class AcsConfig:
@@ -69,13 +70,15 @@ def get_voice_live_config() -> VoiceLiveConfig:
     default_voice = _clean_env("AZURE_VOICELIVE_VOICE", default="en-US-Ava:DragonHDLatestNeural")
     region = _clean_env("AZURE_VOICELIVE_REGION", default="swedencentral")
     api_version = _clean_env("AZURE_VOICELIVE_API_VERSION", default="2025-05-01-preview")
+    use_voicelive_for_acs = _clean_env("USE_VOICELIVE_FOR_ACS", default="false").lower() == "true"
     return VoiceLiveConfig(
         endpoint=endpoint.rstrip("/"),
         api_key=api_key,
         default_model=default_model,
         default_voice=default_voice,
         region=region,
-        api_version=api_version
+        api_version=api_version,
+        use_voicelive_for_acs=use_voicelive_for_acs,
     )
 
 

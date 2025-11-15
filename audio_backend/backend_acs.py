@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from rich.console import Console
-from common.config import get_voice_live_config
+from common.config import get_voice_live_config, VoiceLiveConfig
 from acs.bridges.gpt_realtime_bridge import GptRealtimeBridge
 from acs.bridges.voice_live_bridge import VoiceLiveBridge
 
@@ -33,6 +33,7 @@ from acs.rtmt import RTMiddleTier
 from acs.callback_server import EventHandler
 from acs.helpers import load_prompt_from_markdown
 from acs.tools import *
+
 
 from tools_registry import *
 
@@ -68,6 +69,7 @@ llm_credential = AzureKeyCredential(llm_key) if llm_key else None
 # Global instances (initialized on startup)
 caller: Optional[AcsCaller] = None
 rtmt: Optional[RTMiddleTier] = None
+voice_live_rtmt: Optional[RTMiddleTier] = None
 event_handler: Optional[EventHandler] = None
 gpt_bridge: Optional[GptRealtimeBridge] = None
 voice_live_bridge: Optional[VoiceLiveBridge] = None
@@ -83,15 +85,75 @@ class PhoneCallRequest(BaseModel):
 # ============================================================================
 async def initialize_acs_components():
     """Initialize ACS components with configuration"""
-    global caller, rtmt, event_handler, gpt_bridge, voice_live_bridge
+    global caller, rtmt, voice_live_rtmt, event_handler, gpt_bridge, voice_live_bridge
     
     console.log("[ACS INIT] Initializing ACS phone call components...")
     
     # Initialize ACS caller
     print("Initialize ACS caller", acs_source_number, acs_connection_string, acs_callback_path, acs_media_streaming_websocket_host)
 
+    
+    # Load system prompt
+    system_prompt_path = Path(__file__).parent.parent / "prompts" / "system_prompt.txt"
+    if not system_prompt_path.exists():
+        system_prompt_path = Path(__file__).parent / "system_prompt.md"
+    else:
+        system_prompt = "You are a helpful AI assistant handling phone calls."
+        console.log("[ACS INIT] ⚠️  System prompt not found, using default")
+    
+    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
+    if llm_endpoint_ws and llm_deployment and llm_credential:
+        rtmt = RTMiddleTier(
+            llm_endpoint_ws, 
+            llm_deployment, 
+            llm_credential,
+            realtime_path="openai/v1/realtime",
+            extra_query_params={
+                "useVoiceLiveForAcs": voice_live_config.use_voicelive_for_acs
+            },
+        )
+        rtmt.system_message = system_prompt
+        gpt_bridge = GptRealtimeBridge(rtmt)
+
+        # Register all tools at once
+        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
+        
+        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
+    else:
+        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
+    
+    # Setup placeholder Voice Live bridge if configuration is available
+    voice_live_config = VoiceLiveConfig()
+    try:
+        voice_live_config = get_voice_live_config()
+        voice_live_rtmt = RTMiddleTier(
+            voice_live_config.endpoint,
+            voice_live_config.default_model,
+            AzureKeyCredential(voice_live_config.api_key),
+            realtime_path="/voice-live/realtime",
+            extra_query_params={
+                "api-version": voice_live_config.api_version,
+                "region": voice_live_config.region,
+                "useVoiceLiveForAcs": voice_live_config.use_voicelive_for_acs
+            },
+        )
+        voice_live_rtmt.selected_voice = voice_live_config.default_voice
+        voice_live_rtmt.system_message = system_prompt
+        register_tools_from_registry(voice_live_rtmt, TOOLS_REGISTRY)
+        voice_live_bridge = VoiceLiveBridge(voice_live_rtmt)
+        console.log("[ACS INIT] ✅ Voice Live bridge configured")
+    except Exception as exc:
+        console.log(f"[ACS INIT] ⚠️ Voice Live config unavailable: {exc}")
+
+
+
     if acs_source_number and acs_connection_string and acs_callback_path and acs_media_streaming_websocket_host:
-        acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/realtime-acs"
+
+        if not voice_live_config.use_voicelive_for_acs:
+            acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/realtime-acs"
+        else:
+            acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/voice-live-acs"
+                
         caller = AcsCaller(
             source_number=acs_source_number,
             acs_connection_string=acs_connection_string,
@@ -101,79 +163,13 @@ async def initialize_acs_components():
         console.log("[ACS INIT] ✅ ACS Caller initialized")
     else:
         console.log("[ACS INIT] ⚠️  ACS Caller not configured (missing environment variables)")
-    
-    # Load system prompt
-    system_prompt = None
-    system_prompt_path = Path(__file__).parent.parent / "prompts" / "system_prompt.txt"
 
-    if system_prompt_path.exists():
-        system_prompt = await load_prompt_from_markdown(str(system_prompt_path))
-        console.log(f"[ACS INIT] ✅ System prompt loaded from: {system_prompt_path}")
-    else:
-        # Try alternative location
-        system_prompt_path = Path(__file__).parent / "system_prompt.md"
-        if system_prompt_path.exists():
-            system_prompt = await load_prompt_from_markdown(str(system_prompt_path))
-            console.log(f"[ACS INIT] ✅ System prompt loaded from: {system_prompt_path}")
-        else:
-            console.log("[ACS INIT] ⚠️  System prompt not found, using default")
-            system_prompt = "You are a helpful AI assistant handling phone calls."
-    
-    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
-    if llm_endpoint_ws and llm_deployment and llm_credential:
-        rtmt = RTMiddleTier(llm_endpoint_ws, llm_deployment, llm_credential)
-        rtmt.system_message = system_prompt
-        gpt_bridge = GptRealtimeBridge(rtmt)
-        
-        # Add example tool (can be customized)
-        _weather_tool_schema = {
-            "type": "function",
-            "name": "get_weather_today",
-            "description": "Retrieve today's weather at a specified location.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The location to get weather information for."
-                    }
-                },
-                "required": ["location"],
-                "additionalProperties": False
-            }
-        }
-        
-        async def _report_weather_tool(args):
-            location = args.get("location", "Seattle")
-            weather = f"The weather in {location} is raining with a high of 35°F and a low of 15°F."
-            console.log(f"[FUNCTION CALL] Reporting weather for {location}: {weather}")
-            # return ToolResult({"weather_info": weather}, ToolResultDirection.TO_SERVER)
-            return {"weather_info": weather}
-        
-        rtmt.tools["get_weather_today"] = Tool(
-            target=_report_weather_tool,
-            schema=_weather_tool_schema
-        )
 
-        # Register all tools at once
-        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
-        
-        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
-    else:
-        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
-    
     # Initialize event handler
     if caller:
         event_handler = EventHandler(caller)
         console.log("[ACS INIT] ✅ Event handler initialized")
     
-    # Setup placeholder Voice Live bridge if configuration is available
-    try:
-        voice_live_config = get_voice_live_config()
-        voice_live_bridge = VoiceLiveBridge(voice_live_config)
-        console.log("[ACS INIT] ✅ Voice Live bridge placeholder configured")
-    except Exception as exc:
-        console.log(f"[ACS INIT] ⚠️ Voice Live config unavailable: {exc}")
 
     console.log("[ACS INIT] 🚀 ACS phone integration ready")
 

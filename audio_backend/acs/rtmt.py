@@ -7,7 +7,7 @@ from unittest import case
 import aiohttp
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 from aiohttp import ClientWebSocketResponse, web
 from azure.identity import DefaultAzureCredential, AzureDeveloperCliCredential, get_bearer_token_provider
 from azure.core.credentials import AzureKeyCredential
@@ -39,7 +39,15 @@ class RTMiddleTier:
     _tools_pending: dict[str, RTToolCall] = {}
     _token_provider = None
 
-    def __init__(self, endpoint: str, deployment: str, credentials: AzureKeyCredential | AzureDeveloperCliCredential | DefaultAzureCredential):
+    def __init__(
+        self,
+        endpoint: str,
+        deployment: str,
+        credentials: AzureKeyCredential | AzureDeveloperCliCredential | DefaultAzureCredential,
+        *,
+        realtime_path: str = "/openai/v1/realtime",
+        extra_query_params: Optional[Dict[str, str]] = None,
+    ):
         self.endpoint = endpoint
         self.deployment = deployment
         if isinstance(credentials, AzureKeyCredential):
@@ -47,6 +55,11 @@ class RTMiddleTier:
         else:
             self._token_provider = get_bearer_token_provider(credentials, "https://cognitiveservices.azure.com/.default")
             self._token_provider() # Warm up during startup so we have a token cached when the first request arrives
+        self._realtime_path = realtime_path if realtime_path.startswith("/") else f"/{realtime_path}"
+        self._extra_query_params = extra_query_params or {}
+        self.use_voicelive_for_acs = self._extra_query_params.get("useVoiceLiveForAcs", False)
+
+
 
     async def _process_message_to_client(self, message: Any, client_ws: web.WebSocketResponse, server_ws: ClientWebSocketResponse, is_acs_audio_stream: bool):
         # This method basically follows a 3-step process:
@@ -225,7 +238,15 @@ class RTMiddleTier:
     async def _process_message_to_server(self, data: Any, ws: web.WebSocketResponse, server_ws: ClientWebSocketResponse, is_acs_audio_stream: bool):
         # If the message comes from the Azure Communication Services audio stream, transform it to the OpenAI Realtime API format first
         if (is_acs_audio_stream):
-            data = transform_acs_to_openai_format(data, self.model, self.tools, self.system_message, self.temperature, self.max_tokens, self.disable_audio, self.selected_voice)
+            data = transform_acs_to_openai_format(data, 
+                                                  self.model, 
+                                                  self.tools, 
+                                                  self.system_message, 
+                                                  self.temperature, 
+                                                  self.max_tokens, 
+                                                  self.disable_audio, 
+                                                  self.selected_voice, 
+                                                  self.use_voicelive_for_acs)
 
         if data is not None:
             match data["type"]:
@@ -273,7 +294,10 @@ class RTMiddleTier:
 
     async def forward_messages(self, ws: web.WebSocketResponse, is_acs_audio_stream: bool):
         async with aiohttp.ClientSession(base_url=self.endpoint) as session:
-            params = { "model": self.deployment }
+            params = {}
+            if self.deployment:
+                params["model"] = self.deployment
+            params.update(self._extra_query_params)
 
             headers = {}
             if "x-ms-client-request-id" in ws.headers:
@@ -295,7 +319,7 @@ class RTMiddleTier:
 
             
             # Connect to the OpenAI Realtime API WebSocket
-            async with session.ws_connect("/openai/v1/realtime", headers=headers, params=params) as target_ws:
+            async with session.ws_connect(self._realtime_path, headers=headers, params=params) as target_ws:
                 async def from_client_to_server():
                     # Messages from Azure Communication Services or the Web Frontend are forwarded to the OpenAI Realtime API
                     async for msg in ws:
