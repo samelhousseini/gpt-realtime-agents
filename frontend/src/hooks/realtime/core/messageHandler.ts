@@ -121,6 +121,9 @@ export function handleTranscriptEvent(
   event: any,
   onMessage: (message: ChatMessage) => void
 ): void {
+
+  console.log('[MessageHandler]', 'Processing transcript event', event);
+  
   // Handle user audio transcription
   if (event.type === "conversation.item.input_audio_transcription.completed") {
     if (event.transcript) {

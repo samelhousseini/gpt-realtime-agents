@@ -41,7 +41,7 @@ function App() {
     }
   }, [messages]);
 
-  const handleStartCall = async (connectionMode?: 'webrtc' | 'websocket' | 'voice-live', voice?: string, model?: string) => {
+  const handleStartCall = async (connectionMode?: 'webrtc' | 'voice-live', voice?: string, model?: string) => {
     try {
       console.log('[App] handleStartCall called with:', { connectionMode, voice, model });
       await startSession(connectionMode, voice, model);

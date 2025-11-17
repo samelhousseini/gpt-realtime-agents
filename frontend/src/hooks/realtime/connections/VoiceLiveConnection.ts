@@ -289,7 +289,13 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
           
           // Execute pending function call if arguments are ready
           if (this.pendingFunctionCall && this.pendingFunctionCall.arguments !== undefined) {
-            await this.executeFunctionCall(this.pendingFunctionCall);
+            const functionCall = {
+              call_id: this.pendingFunctionCall.call_id,
+              name: this.pendingFunctionCall.name,
+              arguments: this.pendingFunctionCall.arguments,
+              previous_item_id: this.pendingFunctionCall.previous_item_id
+            };
+            await this.executeFunctionCall(functionCall);
             this.pendingFunctionCall = null;
           }
           break;

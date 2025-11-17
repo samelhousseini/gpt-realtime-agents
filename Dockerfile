@@ -21,7 +21,7 @@ COPY audio_backend/ ./audio_backend
 COPY prompts/ ./prompts
 COPY .env ./.env
 COPY session_config.json ./session_config.json
-
+COPY session_config.json ./frontend/dist/session_config.json
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
 EXPOSE 8080

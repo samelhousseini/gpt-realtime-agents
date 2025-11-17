@@ -80,7 +80,7 @@ export class WebRTCConnection extends RealtimeSessionBase {
 
     // Create data channel
     this.dataChannel = this.peerConnection.createDataChannel('realtime-channel');
-    this.setupDataChannelHandlers();
+    this.setupDataChannelHandlers(credentials);
 
     // Create and send offer
     const offer = await this.peerConnection.createOffer();
@@ -115,12 +115,12 @@ export class WebRTCConnection extends RealtimeSessionBase {
   /**
    * Setup data channel event handlers
    */
-  private setupDataChannelHandlers(): void {
+  private setupDataChannelHandlers(credentials: any): void {
     if (!this.dataChannel) return;
 
     this.dataChannel.addEventListener('open', async () => {
       this.log('Data channel opened');
-      await this.sendSessionUpdate();
+      await this.sendSessionUpdate(credentials);
       this.updateState({ status: 'connected' });
     });
 
@@ -142,32 +142,40 @@ export class WebRTCConnection extends RealtimeSessionBase {
   /**
    * Send session.update message with configuration
    */
-  private async sendSessionUpdate(): Promise<void> {
+  private async sendSessionUpdate(credentials: any): Promise<void> {
     if (!this.dataChannel || !this.toolsData) return;
 
     try {
       // Load configuration from public/session_config.json
-      const response = await fetch('/session_config.json');
+      const response = await fetch('session_config.json');
       if (!response.ok) {
         throw new Error(`Failed to load session config: ${response.statusText}`);
       }
       const sessionConfigs = await response.json();
       const baseConfig = sessionConfigs.realtime;
 
+      console.log("[WebRTC] Loaded base session config:", baseConfig);
+
       // Create session with loaded configuration
       const sessionPayload = {
         type: "session.update",
         session: {
           ...baseConfig,
-          instructions: SYSTEM_PROMPT,
+          instructions: SYSTEM_PROMPT,          
         },
       };
+
+      sessionPayload.session['model'] = credentials.model || baseConfig.model;
+      sessionPayload.session['voice'] = credentials.voice || baseConfig.voice;
 
       // Add tools if available
       if (this.toolsData.tools.length > 0) {
         (sessionPayload.session as any).tools = this.toolsData.tools;
         (sessionPayload.session as any).tool_choice = this.toolsData.toolChoice;
       }
+
+      console.log("[WebRTC] List of available tools to send:", this.toolsData);
+      console.log("[WebRTC] Session config before sending:", sessionPayload);
 
       this.dataChannel.send(JSON.stringify(sessionPayload));
       this.log(`Sent session.update with ${this.toolsData.tools.length} tools`);
@@ -185,15 +193,24 @@ export class WebRTCConnection extends RealtimeSessionBase {
 
     switch (event.type) {
       case "session.error":
-        this.log(`Error: ${event.error?.message || 'Unknown error'}`);
+        console.log(`Error:`, event);
+        break;
+
+      case "session.created":
+        console.log(`Session created`, event);
+        break;
+
+      case "error":
+        this.log(`Error: ${event.message || 'Unknown error'}`);
         break;
 
       case "session.end":
-        this.log("Session ended by server");
+        console.log("Session ended by server");
         this.updateState({ status: 'ended' });
         break;
 
       case "response.done":
+        console.log(`Response done event received`, event);
         if (this.dataChannel) {
           await handleResponseDone(event, this.dataChannel, this.onMessage);
         }
@@ -202,6 +219,7 @@ export class WebRTCConnection extends RealtimeSessionBase {
       case "conversation.item.input_audio_transcription.completed":
       case "response.audio_transcript.done":
       case "response.output_text.done":
+        console.log(`Trascript event`, event);
         handleTranscriptEvent(event, this.onMessage);
         break;
 

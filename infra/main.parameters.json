@@ -35,6 +35,27 @@
     "acsPhoneNumber": {
       "value": "${ACS_PHONE_NUMBER=+1234567890}"
     },
+    "azureVoiceLiveEndpoint": {
+      "value": "${AZURE_VOICELIVE_ENDPOINT=https://<endpoint>.cognitiveservices.azure.com/}"
+    },
+    "azureVoiceLiveApiKey": {
+      "value": "${AZURE_VOICELIVE_API_KEY=<your-voice-live-api-key>}"
+    },
+    "azureVoiceLiveModel": {
+      "value": "${AZURE_VOICELIVE_MODEL=gpt-realtime}"
+    },
+    "azureVoiceLiveVoice": {
+      "value": "${AZURE_VOICELIVE_VOICE=en-US-Andrew:DragonHDLatestNeural}"
+    },
+    "azureVoiceLiveRegion": {
+      "value": "${AZURE_VOICELIVE_REGION=swedencentral}"
+    },
+    "azureVoiceLiveApiVersion": {
+      "value": "${AZURE_VOICELIVE_API_VERSION=2025-05-01-preview}"
+    },
+    "useVoiceLiveForAcs": {
+      "value": "${USE_VOICELIVE_FOR_ACS=true}"
+    },
     "audioBackendAppExists": {
       "value": false
     }

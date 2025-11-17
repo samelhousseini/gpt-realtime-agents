@@ -22,7 +22,7 @@
       "type": "server_echo_cancellation"
     },
     "voice": {
-      "name": "en-US-Aria:DragonHDLatestNeural",
+      "name": "en-US-Andrew:DragonHDLatestNeural",
       "type": "azure-standard",
       "temperature": 0.3
     },
@@ -31,7 +31,6 @@
     "model": "gpt-realtime"
   },
   "realtime": {
-    "type": "realtime",
     "modalities": ["text", "audio"],
     "input_audio_format": "pcm16",
     "output_audio_format": "pcm16",
@@ -62,6 +61,7 @@
     ],
     "voiceLiveVoices": [
       "en-US-Ava:DragonHDLatestNeural",
+      "en-US-Andrew:DragonHDLatestNeural",
       "en-US-Jenny:DragonHDLatestNeural",
       "en-US-AriaNeural",
       "en-GB-LibbyNeural",
