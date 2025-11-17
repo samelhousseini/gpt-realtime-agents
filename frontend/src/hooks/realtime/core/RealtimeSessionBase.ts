@@ -9,6 +9,7 @@ import { ensureToolsLoaded, ToolsData } from './sessionManager';
 export interface SessionState {
   status: 'idle' | 'connecting' | 'connected' | 'ended';
   isMuted: boolean;
+  connectionMode?: 'webrtc' | 'websocket' | 'voice-live';
 }
 
 export interface RealtimeSessionConfig {

@@ -1,0 +1,91 @@
+{
+  "voicelive": {
+    "modalities": ["text", "audio"],
+    "input_audio_format": "pcm16",
+    "output_audio_format": "pcm16",
+    "turn_detection": {
+      "create_response": true,
+      "interrupt_response": true,
+      "type": "azure_semantic_vad",
+      "threshold": 0.5,
+      "prefix_padding_ms": 400,
+      "silence_duration_ms": 400,
+      "remove_filler_words": true
+    },
+    "input_audio_transcription": {
+      "model": "azure-fast-transcription"
+    },
+    "input_audio_noise_reduction": {
+      "type": "azure_deep_noise_suppression"
+    },
+    "input_audio_echo_cancellation": {
+      "type": "server_echo_cancellation"
+    },
+    "voice": {
+      "name": "en-US-Aria:DragonHDLatestNeural",
+      "type": "azure-standard",
+      "temperature": 0.3
+    },
+    "temperature": null,
+    "max_response_output_tokens": null,
+    "model": "gpt-realtime"
+  },
+  "realtime": {
+    "type": "realtime",
+    "modalities": ["text", "audio"],
+    "input_audio_format": "pcm16",
+    "output_audio_format": "pcm16",
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.5,
+      "prefix_padding_ms": 300,
+      "silence_duration_ms": 500
+    },
+    "input_audio_transcription": {
+      "model": "whisper-1"
+    },
+    "model": "gpt-realtime", 
+    "voice": "verse"
+  },
+  "selections": {
+    "gptRealtimeVoices": [
+      "alloy",
+      "ash",
+      "ballad",
+      "coral",
+      "echo",
+      "sage",
+      "shimmer",
+      "verse",
+      "marin",
+      "cedar"
+    ],
+    "voiceLiveVoices": [
+      "en-US-Ava:DragonHDLatestNeural",
+      "en-US-Jenny:DragonHDLatestNeural",
+      "en-US-AriaNeural",
+      "en-GB-LibbyNeural",
+      "de-DE-KatjaNeural",
+      "fr-FR-DeniseNeural",
+      "es-ES-Tristan:DragonHDLatestNeural",
+      "es-ES-Ximena:DragonHDLatestNeural"
+    ],
+    "gptRealtimeModels": [
+      "gpt-realtime"
+    ],
+    "voiceLiveModels": [
+      "gpt-realtime",
+      "gpt-realtime-mini",
+      "gpt-4o",
+      "gpt-4o-mini",
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-5",
+      "gpt-5-mini",
+      "gpt-5-nano",
+      "gpt-5-chat",
+      "phi4-mm-realtime",
+      "phi4-mini"
+    ]
+  }
+}

@@ -23,6 +23,7 @@ export interface SuggestionCard {
 export interface SessionState {
   status: 'idle' | 'connecting' | 'connected' | 'ended';
   isMuted: boolean;
+  connectionMode?: 'webrtc' | 'voice-live';
 }
 
 export interface EscalationState {

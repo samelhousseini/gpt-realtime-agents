@@ -20,6 +20,7 @@ RUN pip install --upgrade pip \
 COPY audio_backend/ ./audio_backend
 COPY prompts/ ./prompts
 COPY .env ./.env
+COPY session_config.json ./session_config.json
 
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 

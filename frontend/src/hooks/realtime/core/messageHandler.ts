@@ -102,6 +102,7 @@ export async function handleResponseDone(
   onMessage: (message: ChatMessage) => void
 ): Promise<void> {
   const response = event.response;
+  console.log('[MessageHandler]', 'Processing response.done event', event);
   if (!response || !Array.isArray(response.output)) {
     return;
   }

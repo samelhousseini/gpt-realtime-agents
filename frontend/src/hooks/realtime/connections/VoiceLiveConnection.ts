@@ -4,14 +4,32 @@
  */
 
 import { RealtimeSessionBase } from '../core/RealtimeSessionBase';
+import { requestSessionCredentials } from '../core/sessionManager';
 import { createAudioContext, float32ToInt16, int16ToFloat32 } from '../core/audioUtils';
-import { CLIENT_CONFIG as CONFIG } from '@/lib/constants';
+import { CLIENT_CONFIG as CONFIG, SYSTEM_PROMPT } from '@/lib/constants';
+import { handleResponseDone } from '../core/messageHandler';
 
 export class VoiceLiveConnection extends RealtimeSessionBase {
   private websocket: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private mediaProcessor: ScriptProcessorNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  private voice?: string;
+  private model?: string;
+  
+  // Track pending function call during Voice Live flow
+  private pendingFunctionCall: {
+    name: string;
+    call_id: string;
+    previous_item_id: string;
+    arguments?: string;
+  } | null = null;
+
+  constructor(config: any, voice?: string, model?: string) {
+    super(config);
+    this.voice = voice;
+    this.model = model;
+  }
 
   /**
    * Connect using Voice Live API WebSocket
@@ -23,6 +41,11 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
       // Load tools (if backend supports them)
       await this.loadTools();
 
+      // Get session credentials (Voice Live uses 'voice-live' mode)
+      const credentials = await requestSessionCredentials('voice-live' as any, this.voice, this.model);
+      this.log(`Session ID: ${credentials.sessionId}`);
+      this.log('Session credentials received');
+
       // Start audio capture
       await this.startAudioCapture();
 
@@ -33,7 +56,7 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
       await this.loadAudioWorklet();
 
       // Setup WebSocket connection
-      await this.setupWebSocketConnection();
+      await this.setupWebSocketConnection(credentials);
 
     } catch (error: any) {
       this.log(`Connection failed: ${error.message}`);
@@ -66,17 +89,21 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
   /**
    * Setup WebSocket connection to Voice Live API
    */
-  private async setupWebSocketConnection(): Promise<void> {
+  private async setupWebSocketConnection(credentials: any): Promise<void> {
     this.log('Setting up Voice Live WebSocket connection...');
 
-    // Determine WebSocket URL for Voice Live API
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const backendHost = new URL(CONFIG.backendBaseUrl).host;
-    const wsUrl = `${wsProtocol}://${backendHost}/web/ws`;
+    // Use WebSocket URL from credentials and add ephemeral key authentication
+    let wsUrl = credentials.realtimeUrl.replace(/^https?:/, 'wss:');
+    
+    // Add ephemeral key as query parameter for authentication
+    const url = new URL(wsUrl);
+    url.searchParams.set('api-key', credentials.ephemeralKey);
+    wsUrl = url.toString();
+    
+    this.log(`Connecting to: ${wsUrl.replace(credentials.ephemeralKey, '***')}`);
 
-    // Create WebSocket with binary type
+    // Create WebSocket (text mode for Voice Live API)
     this.websocket = new WebSocket(wsUrl);
-    this.websocket.binaryType = 'arraybuffer';
 
     // Setup event handlers
     this.websocket.onopen = async () => {
@@ -87,8 +114,8 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
         await this.audioContext.resume();
       }
       
-      this.setupAudioInput();
-      this.updateState({ status: 'connected' });
+      // Send session configuration
+      await this.sendSessionUpdate(credentials);
     };
 
     this.websocket.onmessage = async (event) => {
@@ -106,7 +133,57 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
   }
 
   /**
-   * Setup audio input processing with binary transmission
+   * Send session configuration to Voice Live API
+   */
+  private async sendSessionUpdate(credentials: any): Promise<void> {
+    if (!this.websocket || !this.toolsData) return;
+
+    try {
+      // Load configuration from public/session_config.json
+      const response = await fetch('/session_config.json');
+      if (!response.ok) {
+        throw new Error(`Failed to load session config: ${response.statusText}`);
+      }
+      const sessionConfigs = await response.json();
+      const baseConfig = sessionConfigs.voicelive;
+
+      // Create session with loaded configuration
+      const sessionConfig = {
+        type: 'session.update',
+        session: {
+          ...baseConfig,
+          instructions: SYSTEM_PROMPT,
+        }
+      };
+      
+      console.log("[VoiceLiveConnection] credentials model/voice:", credentials.model, credentials.voice);
+
+      sessionConfig.session['model'] = credentials.model || baseConfig.model;
+      sessionConfig.session['voice'] = {
+        "name": credentials.voice || baseConfig.voice,
+        "type": "azure-standard",
+        "temperature": 0.3
+      };
+      
+      console.log("[VoiceLiveConnection] List of available tools to send:", this.toolsData);
+      console.log("[VoiceLiveConnection] Session config before sending:", sessionConfig);
+
+      // Add tools if available
+      if (this.toolsData.tools.length > 0) {
+        (sessionConfig.session as any).tools = this.toolsData.tools;
+        (sessionConfig.session as any).tool_choice = this.toolsData.toolChoice;
+      }
+
+      this.websocket.send(JSON.stringify(sessionConfig));
+      this.log('Sent session configuration');
+    } catch (error) {
+      this.log(`Failed to load session config: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Setup audio input processing with base64 transmission
    */
   private setupAudioInput(): void {
     if (!this.audioContext || !this.clientMedia) return;
@@ -120,61 +197,248 @@ export class VoiceLiveConnection extends RealtimeSessionBase {
       const inputData = e.inputBuffer.getChannelData(0);
       const int16Data = float32ToInt16(inputData);
       
-      // Send raw binary PCM (NOT base64)
-      this.websocket.send(int16Data.buffer);
+      // Convert to base64 as expected by Voice Live API
+      const uint8Array = new Uint8Array(int16Data.buffer);
+      let binary = '';
+      for (let i = 0; i < uint8Array.byteLength; i++) {
+        binary += String.fromCharCode(uint8Array[i]);
+      }
+      const base64Audio = btoa(binary);
+      
+      // Send audio via input_audio_buffer.append message
+      const audioMessage = {
+        type: 'input_audio_buffer.append',
+        audio: base64Audio
+      };
+      
+      this.websocket.send(JSON.stringify(audioMessage));
     };
 
     source.connect(this.mediaProcessor);
     this.mediaProcessor.connect(this.audioContext.destination);
-    this.log('Audio input processing started (binary mode)');
+    this.log('Audio input processing started (base64 mode)');
   }
 
   /**
    * Handle incoming Voice Live API messages
    */
   private async handleVoiceLiveMessage(event: MessageEvent): Promise<void> {
-    // Handle JSON messages
-    if (typeof event.data === 'string') {
-      try {
-        const msg = JSON.parse(event.data);
-        
-        if (msg.Kind === 'StopAudio') {
-          this.log('Received StopAudio command');
-          this.stopPlayback();
-        } else if (msg.Kind === 'Transcription') {
-          this.log(`Transcript: ${msg.Text}`);
-          
-          // Add transcript to UI
-          this.onMessage({
-            id: crypto.randomUUID(),
-            role: msg.Speaker === 'user' ? 'user' : 'assistant',
-            content: msg.Text,
-            timestamp: Date.now()
-          });
-        } else {
-          this.log(`Unknown message kind: ${msg.Kind}`);
-        }
-      } catch (error) {
-        this.log(`Failed to parse JSON message: ${error}`);
-      }
+    if (typeof event.data !== 'string') {
+      this.log(`Unexpected non-string message: ${typeof event.data}`);
+      return;
     }
-    // Handle binary audio data
-    else if (event.data instanceof ArrayBuffer) {
-      this.playAudioBinary(event.data);
-    } else {
-      this.log(`Unknown message type: ${typeof event.data}`);
+
+    try {
+      const msg = JSON.parse(event.data);
+      // console.log('[VoiceLive Event]', msg.type);
+      
+      switch (msg.type) {
+        case 'session.updated':
+          this.log('Session ready');
+          this.setupAudioInput();
+          this.updateState({ status: 'connected' });
+          break;
+
+        case 'input_audio_buffer.speech_started':
+          this.log('User started speaking - stopping playback');
+          this.stopPlayback();
+          break;
+
+        case 'input_audio_buffer.speech_stopped':
+          this.log('User stopped speaking');
+          break;
+
+        case 'response.created':
+          this.log('Assistant response created');
+          break;
+
+        case 'response.audio.delta':
+          // Play audio delta
+          if (msg.delta) {
+            this.playAudioBase64(msg.delta);
+          }
+          break;
+
+        case 'response.audio.done':
+          this.log('Assistant finished speaking');
+          break;
+
+        case 'conversation.item.created':
+          // Function call detected
+          if (msg.item?.type === 'function_call') {
+            const functionCallItem = msg.item;
+            this.pendingFunctionCall = {
+              name: functionCallItem.name,
+              call_id: functionCallItem.call_id,
+              previous_item_id: functionCallItem.id
+            };
+            this.log(`Function call detected: ${functionCallItem.name} (call_id: ${functionCallItem.call_id})`);
+          }
+          break;
+
+        case 'response.function_call_arguments.done':
+          // Function arguments received
+          if (this.pendingFunctionCall && msg.call_id === this.pendingFunctionCall.call_id) {
+            this.log(`Function arguments received for ${this.pendingFunctionCall.name}`);
+            this.pendingFunctionCall.arguments = msg.arguments;
+          }
+          break;
+
+        case 'response.done':
+          this.log('Response complete');
+          
+          // Execute pending function call if arguments are ready
+          if (this.pendingFunctionCall && this.pendingFunctionCall.arguments !== undefined) {
+            await this.executeFunctionCall(this.pendingFunctionCall);
+            this.pendingFunctionCall = null;
+          }
+          break;
+
+        case 'conversation.item.input_audio_transcription.completed':
+          // User transcript
+          if (msg.transcript) {
+            this.onMessage({
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: msg.transcript,
+              timestamp: Date.now()
+            });
+          }
+          break;
+
+        case 'response.audio_transcript.done':
+          // Assistant transcript
+          if (msg.transcript) {
+            this.onMessage({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: msg.transcript,
+              timestamp: Date.now()
+            });
+          }
+          break;
+
+        case 'error':
+          this.log(`Voice Live error: ${msg.error?.message || 'Unknown error'}`);
+          break;
+
+        default:
+          // this.log(`Unhandled event type: ${msg.type}`);
+          break;
+      }
+    } catch (error) {
+      this.log(`Failed to parse message: ${error}`);
     }
   }
 
   /**
-   * Play binary audio data using AudioWorklet
+   * Execute a function call (Voice Live flow)
    */
-  private playAudioBinary(arrayBuffer: ArrayBuffer): void {
+  private async executeFunctionCall(functionCall: { call_id: string; name: string; arguments: string; previous_item_id: string }): Promise<void> {
+    if (!this.websocket) return;
+
+    const callId = functionCall.call_id;
+    const functionName = functionCall.name;
+    let argumentsPayload: any = {};
+
+    // Parse arguments
+    try {
+      argumentsPayload = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
+    } catch (error) {
+      this.log(`Failed to parse function arguments: ${error}`);
+      argumentsPayload = {};
+    }
+
+    this.log(`Executing function: ${functionName} with args: ${JSON.stringify(argumentsPayload)}`);
+
+    // Add tool call message to UI
+    this.onMessage({
+      id: crypto.randomUUID(),
+      role: 'tool_call',
+      content: `Calling ${functionName}`,
+      timestamp: Date.now(),
+      toolName: functionName,
+      toolArgs: argumentsPayload
+    });
+
+    try {
+      const response = await fetch(`${CONFIG.backendBaseUrl}/function-call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: functionName,
+          call_id: callId,
+          arguments: argumentsPayload,
+        }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Backend error (${response.status}): ${detail}`);
+      }
+
+      const result = await response.json();
+      
+      // Add tool result message to UI
+      this.onMessage({
+        id: crypto.randomUUID(),
+        role: 'tool_result',
+        content: JSON.stringify(result.output, null, 2),
+        timestamp: Date.now(),
+        toolName: functionName
+      });
+
+      // Send function output back to Voice Live
+      const conversationEvent = {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify(result.output),
+        },
+      };
+
+      this.websocket.send(JSON.stringify(conversationEvent));
+      this.websocket.send(JSON.stringify({ type: "response.create" }));
+      
+      this.log(`Function ${functionName} executed successfully, requesting new response`);
+    } catch (error: any) {
+      this.log(`Function ${functionName} failed: ${error.message}`);
+      
+      // Send error back to Voice Live
+      const errorPayload = { error: error.message };
+      const conversationEvent = {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify(errorPayload),
+        },
+      };
+
+      this.websocket.send(JSON.stringify(conversationEvent));
+      this.websocket.send(JSON.stringify({ type: "response.create" }));
+    }
+  }
+
+  /**
+   * Play base64-encoded audio delta
+   */
+  private playAudioBase64(base64Audio: string): void {
     if (!this.workletNode || !this.audioContext) return;
 
     try {
+      // Decode base64 to binary
+      const binary = atob(base64Audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
       // Convert Int16 PCM to Float32
-      const int16Array = new Int16Array(arrayBuffer);
+      const int16Array = new Int16Array(bytes.buffer);
       const float32Array = int16ToFloat32(int16Array);
 
       // Send to AudioWorklet for buffered playback

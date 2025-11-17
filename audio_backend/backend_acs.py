@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from rich.console import Console
-from common.config import get_voice_live_config, VoiceLiveConfig
+from common.config import get_voice_live_config, VoiceLiveConfig, get_browser_realtime_config
 from acs.bridges.gpt_realtime_bridge import GptRealtimeBridge
 from acs.bridges.voice_live_bridge import VoiceLiveBridge
 
@@ -94,38 +94,23 @@ async def initialize_acs_components():
 
     
     # Load system prompt
+    print("Loading system prompt for ACS...")
     system_prompt_path = Path(__file__).parent.parent / "prompts" / "system_prompt.txt"
-    if not system_prompt_path.exists():
-        system_prompt_path = Path(__file__).parent / "system_prompt.md"
-    else:
-        system_prompt = "You are a helpful AI assistant handling phone calls."
-        console.log("[ACS INIT] ⚠️  System prompt not found, using default")
     
-    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
-    if llm_endpoint_ws and llm_deployment and llm_credential:
-        rtmt = RTMiddleTier(
-            llm_endpoint_ws, 
-            llm_deployment, 
-            llm_credential,
-            realtime_path="openai/v1/realtime",
-            extra_query_params={
-                "useVoiceLiveForAcs": voice_live_config.use_voicelive_for_acs
-            },
-        )
-        rtmt.system_message = system_prompt
-        gpt_bridge = GptRealtimeBridge(rtmt)
-
-        # Register all tools at once
-        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
-        
-        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
-    else:
-        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
+    try:
+        system_prompt = load_prompt_from_markdown(system_prompt_path)
+        console.log("[ACS INIT] ✅ System prompt loaded from:", str(system_prompt_path))
+    except Exception as e:
+        console.log(f"[ACS INIT] ⚠️  Error loading system prompt: {e}")
+        system_prompt = "You are a helpful AI assistant handling phone calls."
     
     # Setup placeholder Voice Live bridge if configuration is available
-    voice_live_config = VoiceLiveConfig()
+    voice_live_config = None
     try:
         voice_live_config = get_voice_live_config()
+        
+        console.log("[ACS INIT] Voice Live Config loaded", voice_live_config)
+        
         voice_live_rtmt = RTMiddleTier(
             voice_live_config.endpoint,
             voice_live_config.default_model,
@@ -134,8 +119,8 @@ async def initialize_acs_components():
             extra_query_params={
                 "api-version": voice_live_config.api_version,
                 "region": voice_live_config.region,
-                "useVoiceLiveForAcs": voice_live_config.use_voicelive_for_acs
             },
+            useVoiceLiveForAcs=voice_live_config.use_voicelive_for_acs if voice_live_config else False,
         )
         voice_live_rtmt.selected_voice = voice_live_config.default_voice
         voice_live_rtmt.system_message = system_prompt
@@ -146,7 +131,29 @@ async def initialize_acs_components():
         console.log(f"[ACS INIT] ⚠️ Voice Live config unavailable: {exc}")
 
 
+    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
+    if llm_endpoint_ws and llm_deployment and llm_credential:
+        
+        realtime_config = get_browser_realtime_config()
+        
+        rtmt = RTMiddleTier(
+            llm_endpoint_ws, 
+            llm_deployment, 
+            llm_credential,
+            realtime_path="openai/v1/realtime",
+            useVoiceLiveForAcs=voice_live_config.use_voicelive_for_acs if voice_live_config else False,
+        )
+        rtmt.selected_voice = realtime_config.default_voice
+        rtmt.system_message = system_prompt
+        gpt_bridge = GptRealtimeBridge(rtmt)
 
+        # Register all tools at once
+        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
+        
+        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
+    else:
+        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
+        
     if acs_source_number and acs_connection_string and acs_callback_path and acs_media_streaming_websocket_host:
 
         if not voice_live_config.use_voicelive_for_acs:
@@ -261,16 +268,18 @@ async def voice_live_bridge_handler(websocket: WebSocket):
         await websocket.close(code=1011, reason="Voice Live not configured")
         return
 
-    try:
-        await voice_live_bridge.handle(websocket)
-    except WebSocketDisconnect:
-        console.log("[VOICE-LIVE BRIDGE] Client disconnected")
-    except Exception as exc:
-        console.log(f"[VOICE-LIVE BRIDGE] ❌ Error: {exc}")
-        try:
-            await websocket.close(code=1011, reason="Voice Live bridge error")
-        except:
-            pass
+    await voice_live_bridge.handle(websocket)
+    
+    # try:
+    #     await voice_live_bridge.handle(websocket)
+    # except WebSocketDisconnect:
+    #     console.log("[VOICE-LIVE BRIDGE] Client disconnected")
+    # except Exception as exc:
+    #     console.log(f"[VOICE-LIVE BRIDGE] ❌ Error: {exc}")
+    #     try:
+    #         await websocket.close(code=1011, reason="Voice Live bridge error")
+    #     except:
+    #         pass
 
 
 # ============================================================================

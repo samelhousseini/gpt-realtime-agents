@@ -12,6 +12,14 @@ export class WebRTCConnection extends RealtimeSessionBase {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private audioElement: HTMLAudioElement | null = null;
+  private voice?: string;
+  private model?: string;
+
+  constructor(config: any, voice?: string, model?: string) {
+    super(config);
+    this.voice = voice;
+    this.model = model;
+  }
 
   /**
    * Connect using WebRTC with ephemeral key
@@ -24,7 +32,7 @@ export class WebRTCConnection extends RealtimeSessionBase {
       await this.loadTools();
 
       // Get session credentials
-      const credentials = await requestSessionCredentials();
+      const credentials = await requestSessionCredentials('webrtc', this.voice, this.model);
       this.log(`Session ID: ${credentials.sessionId}`);
       this.log('Ephemeral key received');
 
@@ -110,9 +118,9 @@ export class WebRTCConnection extends RealtimeSessionBase {
   private setupDataChannelHandlers(): void {
     if (!this.dataChannel) return;
 
-    this.dataChannel.addEventListener('open', () => {
+    this.dataChannel.addEventListener('open', async () => {
       this.log('Data channel opened');
-      this.sendSessionUpdate();
+      await this.sendSessionUpdate();
       this.updateState({ status: 'connected' });
     });
 
@@ -134,27 +142,39 @@ export class WebRTCConnection extends RealtimeSessionBase {
   /**
    * Send session.update message with configuration
    */
-  private sendSessionUpdate(): void {
+  private async sendSessionUpdate(): Promise<void> {
     if (!this.dataChannel || !this.toolsData) return;
 
-    const sessionPayload = {
-      type: "session.update",
-      session: {
-        instructions: SYSTEM_PROMPT,
-        input_audio_transcription: {
-          model: "whisper-1"
-        }
-      },
-    };
+    try {
+      // Load configuration from public/session_config.json
+      const response = await fetch('/session_config.json');
+      if (!response.ok) {
+        throw new Error(`Failed to load session config: ${response.statusText}`);
+      }
+      const sessionConfigs = await response.json();
+      const baseConfig = sessionConfigs.realtime;
 
-    // Add tools if available
-    if (this.toolsData.tools.length > 0) {
-      (sessionPayload.session as any).tools = this.toolsData.tools;
-      (sessionPayload.session as any).tool_choice = this.toolsData.toolChoice;
+      // Create session with loaded configuration
+      const sessionPayload = {
+        type: "session.update",
+        session: {
+          ...baseConfig,
+          instructions: SYSTEM_PROMPT,
+        },
+      };
+
+      // Add tools if available
+      if (this.toolsData.tools.length > 0) {
+        (sessionPayload.session as any).tools = this.toolsData.tools;
+        (sessionPayload.session as any).tool_choice = this.toolsData.toolChoice;
+      }
+
+      this.dataChannel.send(JSON.stringify(sessionPayload));
+      this.log(`Sent session.update with ${this.toolsData.tools.length} tools`);
+    } catch (error) {
+      this.log(`Failed to load session config: ${error}`);
+      throw error;
     }
-
-    this.dataChannel.send(JSON.stringify(sessionPayload));
-    this.log(`Sent session.update with ${this.toolsData.tools.length} tools`);
   }
 
   /**

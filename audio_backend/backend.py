@@ -45,7 +45,11 @@ sys.path.insert(0, str(Path(__file__).parent ))
 
 
 from tools_registry import *
-from common.config import get_browser_realtime_config
+from common.config import (
+    get_browser_realtime_config,
+    get_voice_live_config,
+    get_voice_and_model_selections,
+)
 from services.browser_session_service import (
     BrowserSession,
     ConnectionMode,
@@ -53,7 +57,7 @@ from services.browser_session_service import (
 )
 
 
-
+console = Console()
 
 load_dotenv()
 
@@ -71,6 +75,8 @@ app.add_middleware(
 
 
 browser_realtime_config = get_browser_realtime_config()
+voice_live_config = get_voice_live_config()
+
 
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 FRONTEND_BACKEND_BASE_URL = os.getenv("VITE_BACKEND_BASE_URL", "http://localhost:8080/api")
@@ -90,7 +96,7 @@ token_provider = get_bearer_token_provider(credential, "https://cognitiveservice
 class SessionRequest(BaseModel):
     deployment: str | None = Field(default=None, description="Azure OpenAI deployment name")
     voice: str | None = Field(default=None, description="Voice to request in the session")
-    connectionMode: ConnectionMode | None = Field(
+    connection_mode: ConnectionMode | None = Field(
         default="webrtc",
         description="Connection mode for the browser client",
     )
@@ -121,11 +127,17 @@ class FunctionCallResponse(BaseModel):
 ToolExecutor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]] | Dict[str, Any]]
 
 
-async def _get_auth_headers() -> Dict[str, str]:
+async def _get_auth_headers(connection_mode: ConnectionMode) -> Dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if browser_realtime_config.azure_api_key:
-        headers["api-key"] = browser_realtime_config.azure_api_key
-        return headers
+    
+    if connection_mode == "webrtc":
+        if browser_realtime_config.azure_api_key:
+            headers["api-key"] = browser_realtime_config.azure_api_key
+            return headers
+    else:
+        if voice_live_config.api_key:
+            headers["api-key"] = voice_live_config.api_key
+            return headers
 
     # Prefer managed identity / Azure AD tokens when available
     token = await token_provider()
@@ -155,13 +167,22 @@ async def list_tools() -> Dict[str, Any]:
 @app.post("/api/session", response_model=SessionResponse)
 async def create_session(request: SessionRequest) -> SessionResponse:
     """Issue an ephemeral key suitable for establishing a WebRTC session."""
-    deployment = request.deployment or browser_realtime_config.default_deployment
-    voice = request.voice or browser_realtime_config.default_voice
-    connection_mode: ConnectionMode = request.connectionMode or "webrtc"
+    
+    console.log(f"[create_session] Received session creation request: {request.model_dump_json()}")
+    connection_mode: ConnectionMode = request.connection_mode or "webrtc"
+    
+    if connection_mode == "voice-live":
+        deployment = request.deployment or voice_live_config.default_model
+        voice = request.voice or voice_live_config.default_voice
+    else:
+        deployment = request.deployment or browser_realtime_config.default_deployment
+        voice = request.voice or browser_realtime_config.default_voice
+    
+    console.log(f"[create_session] deployment={deployment}, voice={voice}, connection_mode={connection_mode}")
 
     realtime_headers: Dict[str, str] | None = None
-    if connection_mode in {"webrtc", "websocket"}:
-        realtime_headers = await _get_auth_headers()
+    realtime_headers = await _get_auth_headers(connection_mode)
+    print("Realtime Headers:", realtime_headers)
 
     try:
         session: BrowserSession = await create_browser_session(
@@ -170,6 +191,8 @@ async def create_session(request: SessionRequest) -> SessionResponse:
             voice=voice,
             realtime_headers=realtime_headers,
         )
+        
+        console.log("[create_session] Created session:", session)
     except httpx.HTTPStatusError as exc:
         logger.exception("Failed to create realtime session: %s", exc)
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
@@ -252,7 +275,22 @@ async def healthcheck() -> Dict[str, str]:
 
 @app.get("/runtime-config.js", response_class=PlainTextResponse)
 async def runtime_config() -> PlainTextResponse:
-    payload = json.dumps({"backendBaseUrl": FRONTEND_BACKEND_BASE_URL})
+    print("[BROWSER INIT] Serving runtime config with backendBaseUrl =", FRONTEND_BACKEND_BASE_URL)
+    
+    # Get voice and model selections from config
+    selections = get_voice_and_model_selections()
+    
+    payload = json.dumps({
+        "backendBaseUrl": FRONTEND_BACKEND_BASE_URL,
+        "voiceSelections": {
+            "gptRealtime": selections["gptRealtimeVoices"],
+            "voiceLive": selections["voiceLiveVoices"],
+        },
+        "modelSelections": {
+            "gptRealtime": selections["gptRealtimeModels"],
+            "voiceLive": selections["voiceLiveModels"],
+        },
+    })
     script = f"window.__APP_CONFIG__ = Object.freeze({payload});"
     return PlainTextResponse(content=script, media_type="application/javascript")
 

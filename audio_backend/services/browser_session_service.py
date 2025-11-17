@@ -15,7 +15,7 @@ from common.config import (
     get_voice_live_config,
 )
 
-ConnectionMode = Literal["webrtc", "websocket", "voice-live"]
+ConnectionMode = Literal["webrtc", "voice-live"]
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,8 @@ async def create_browser_session(
 ) -> BrowserSession:
     """Create a session for the requested browser connection mode."""
 
-    if connection_mode in {"webrtc", "websocket"}:
+    print(f"[create_browser_session] connection_mode={connection_mode}, deployment={deployment}, voice={voice}")
+    if connection_mode  == "webrtc":
         return await _create_gpt_realtime_session(
             deployment=deployment,
             voice=voice,
@@ -53,6 +54,7 @@ async def create_browser_session(
         return _create_voice_live_session(deployment=deployment, voice=voice)
 
     raise ValueError(f"Unsupported connection mode: {connection_mode}")
+
 
 
 async def _create_gpt_realtime_session(
@@ -79,8 +81,8 @@ async def _create_gpt_realtime_session(
         session_id=session_id,
         ephemeral_key=ephemeral_key,
         realtime_url=config.webrtc_url,
-        deployment=deployment,
-        voice=voice,
+        deployment=deployment or config.default_deployment,
+        voice=voice or config.default_voice,
     )
 
 
@@ -96,6 +98,6 @@ def _create_voice_live_session(*, deployment: str, voice: str) -> BrowserSession
         session_id=str(uuid.uuid4()),
         ephemeral_key=config.api_key,
         realtime_url=url,
-        deployment=model,
+        deployment=model or config.default_model,
         voice=voice or config.default_voice,
     )

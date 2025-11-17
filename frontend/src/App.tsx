@@ -29,7 +29,7 @@ function App() {
     }
   }, []);
 
-  const { sessionState, startSession, endSession, toggleMute, sendTextMessage, isConnected, getCurrentMediaStream } = useRealtimeSession({
+  const { sessionState, startSession, endSession, toggleMute, sendTextMessage, isConnected, getCurrentMediaStream, setConnectionMode } = useRealtimeSession({
     onMessage: handleMessage,
     onStateChange: handleStateChange
   });
@@ -41,9 +41,10 @@ function App() {
     }
   }, [messages]);
 
-  const handleStartCall = async () => {
+  const handleStartCall = async (connectionMode?: 'webrtc' | 'websocket' | 'voice-live', voice?: string, model?: string) => {
     try {
-      await startSession();
+      console.log('[App] handleStartCall called with:', { connectionMode, voice, model });
+      await startSession(connectionMode, voice, model);
     } catch (error: any) {
       toast.error(`Failed to start call: ${error.message}`);
     }
@@ -98,6 +99,7 @@ function App() {
         onEndCall={endSession}
         onToggleMute={toggleMute}
         getCurrentMediaStream={getCurrentMediaStream}
+        onConnectionModeChange={setConnectionMode}
       />
 
       <div className="flex-1 flex overflow-hidden min-h-0">

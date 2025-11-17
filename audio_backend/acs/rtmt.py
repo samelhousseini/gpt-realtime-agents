@@ -16,6 +16,11 @@ from helpers import transform_acs_to_openai_format, transform_openai_to_acs_form
 from rich.console import Console
 console = Console()
 
+# Load session configuration from root directory
+_config_path = Path(__file__).parent.parent.parent / "session_config.json"
+with open(_config_path, 'r') as f:
+    SESSION_CONFIG = json.load(f)
+
 
 
 class RTMiddleTier:
@@ -30,7 +35,6 @@ class RTMiddleTier:
 
     # Server-enforced configuration, if set, these will override the client's configuration
     # Typically at least the model name and system message will be set by the server
-    model: Optional[str] = None
     system_message: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -45,11 +49,14 @@ class RTMiddleTier:
         deployment: str,
         credentials: AzureKeyCredential | AzureDeveloperCliCredential | DefaultAzureCredential,
         *,
+        selected_voice: str = "alloy",
         realtime_path: str = "/openai/v1/realtime",
         extra_query_params: Optional[Dict[str, str]] = None,
+        useVoiceLiveForAcs: bool = False,
     ):
         self.endpoint = endpoint
         self.deployment = deployment
+        self.selected_voice = selected_voice
         if isinstance(credentials, AzureKeyCredential):
             self.key = credentials.key
         else:
@@ -57,7 +64,7 @@ class RTMiddleTier:
             self._token_provider() # Warm up during startup so we have a token cached when the first request arrives
         self._realtime_path = realtime_path if realtime_path.startswith("/") else f"/{realtime_path}"
         self._extra_query_params = extra_query_params or {}
-        self.use_voicelive_for_acs = self._extra_query_params.get("useVoiceLiveForAcs", False)
+        self.use_voicelive_for_acs = useVoiceLiveForAcs
 
 
 
@@ -85,12 +92,12 @@ class RTMiddleTier:
                     })
 
                 case "response.output_item.added":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.output_item.added")
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] response.output_item.added")
                     if "item" in message and message["item"]["type"] == "function_call":
                         message = None
 
-                case "conversation.item.added":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] conversation.item.created")
+                case "conversation.item.added" | "conversation.item.created":
+                    console.log(f"[RECEIVED FROM SERVER  - MODEL] {message['type']}")
                     if "item" in message and message["item"]["type"] == "function_call":
                         item = message["item"]
                         console.log(f"[SERVER EVENT] conversation.item.created::Function call initiated: {item.get('name', 'unknown')} (call_id: {item.get('call_id', 'unknown')})")
@@ -110,7 +117,7 @@ class RTMiddleTier:
                     message = None
 
                 case "response.output_item.done":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.output_item.done")
+                    # console.log(f"[RECEIVED FROM SERVER  - MODEL] response.output_item.done")
                     if "item" in message and message["item"]["type"] == "function_call":
                         item = message["item"]
                         console.log(f"[SERVER EVENT] Function call initiated: {item.get('name', 'unknown')} (call_id: {item.get('call_id', 'unknown')})")
@@ -142,8 +149,8 @@ class RTMiddleTier:
 
                         message = None
 
-                case "response.done":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.done")
+                case "response.done" | "response.audio.done":
+                    console.log(f"[RECEIVED FROM SERVER  - MODEL] response.done")
                     if len(self._tools_pending) > 0:
                         console.log(f"[CLIENT EVENT] Function calls completed ({len(self._tools_pending)} tools), requesting new response from model")
                         self._tools_pending.clear() # Any chance tool calls could be interleaved across different outstanding responses?
@@ -162,10 +169,12 @@ class RTMiddleTier:
                             message = json.loads(json.dumps(message)) # TODO: This is a hack to make the message a dict again. Find out, what 'replace' does
 
                 case "input_audio_buffer.speech_started":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_started")
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_started")
+                    pass
 
                 case "input_audio_buffer.speech_stopped":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_stopped")
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.speech_stopped")
+                    pass
 
                 case "input_audio_buffer.committed":
                     console.log("[RECEIVED FROM SERVER  - MODEL] input_audio_buffer.committed")
@@ -183,13 +192,13 @@ class RTMiddleTier:
                     console.log("[RECEIVED FROM SERVER  - MODEL] conversation.item.added")
 
                 case "conversation.item.done":
-                    console.log(f"[RECEIVED FROM SERVER  - MODEL] conversation.item.done {message}")
+                    console.log(f"[RECEIVED FROM SERVER  - MODEL] conversation.item.done")
                     
                 case "response.created":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.created")
+                    console.log(f"[RECEIVED FROM SERVER  - MODEL] response.created")
 
                 case "response.output_item.added":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.output_item.added")
+                    console.log(f"[RECEIVED FROM SERVER  - MODEL] response.output_item.added")
 
                 case "response.content_part.added":
                     console.log("[RECEIVED FROM SERVER  - MODEL] response.content_part.added")
@@ -198,12 +207,8 @@ class RTMiddleTier:
                     # console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio_transcript.delta:", message.get("delta", ""))
                     pass
 
-                case "response.output_audio_transcript.done":
+                case "response.output_audio_transcript.done" | "response.audio_transcript.done":
                     console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio_transcript.done:", message.get("transcript", ""))
-
-                case "response.output_audio.delta":
-                    # console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio.delta")
-                    pass
 
                 case "response.output_audio.done":
                     console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio.done")
@@ -216,16 +221,25 @@ class RTMiddleTier:
                     console.log("[RECEIVED FROM SERVER  - MODEL] response.content_part.done", message.get("transcript", ""))
 
                 case "response.output_audio.delta":
-                    console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio.delta")
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] response.output_audio.delta")
+                    pass
 
+                case "response.audio_transcript.delta":
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] response.audio_transcript.delta:", message.get("delta", ""))
+                    pass
+
+                case "response.audio.delta":
+                    # console.log("[RECEIVED FROM SERVER  - MODEL] response.audio.delta")
+                    pass
+                    
                 case "response.output_text.done":
                     console.log("[RECEIVED FROM SERVER  - MODEL] response.output_text.done:", message.get("text", ""))
 
                 case "rate_limits.updated":
                     console.log("[RECEIVED FROM SERVER  - MODEL] rate_limits.updated")
-
+                    
                 case _:
-                    print("_process_message_to_client::Unhandled message type:", message)
+                    print("_process_message_to_client::Unhandled message type:", message.get("type", "unknown"))
 
         # Transform the message to the Azure Communication Services format,
         # if it comes from the OpenAI realtime stream.
@@ -239,7 +253,7 @@ class RTMiddleTier:
         # If the message comes from the Azure Communication Services audio stream, transform it to the OpenAI Realtime API format first
         if (is_acs_audio_stream):
             data = transform_acs_to_openai_format(data, 
-                                                  self.model, 
+                                                  self.deployment, 
                                                   self.tools, 
                                                   self.system_message, 
                                                   self.temperature, 
@@ -251,13 +265,19 @@ class RTMiddleTier:
         if data is not None:
             match data["type"]:
                 case "session.update":
-                    session = data.get("session", {})
+                    console.log("[RECEIVED FROM CLIENT - ACS] session.update request")
+                    
+                    # Load base configuration from session_config.json
+                    config_key = "voicelive" if self.use_voicelive_for_acs else "realtime"
+                    session = json.loads(json.dumps(SESSION_CONFIG[config_key]))  # Deep copy
+                    
+                    # Add server-enforced configuration
                     session["instructions"] = self.system_message
                     session["tool_choice"] = "auto" if len(self.tools) > 0 else "none"
                     session["tools"] = [tool.schema for tool in self.tools.values()]
-                    session["type"] = "realtime"
                     data["session"] = session
-                    console.log("[RECEIVED FROM CLIENT - ACS] session.update", data)
+                    
+                    # console.log("[RECEIVED FROM CLIENT - ACS] session.update", data)
 
                 case "input_audio_buffer.commit":
                     console.log("[RECEIVED FROM CLIENT - ACS] input_audio_buffer.commit")
@@ -312,10 +332,10 @@ class RTMiddleTier:
                 else:
                     raise ValueError("No token provider available")
 
-            # console.log("Connecting to OpenAI Realtime API WebSocket...")
-            # console.log(f"Headers: {headers}")
-            # console.log(f"Params: {params}")
-            # console.log(f"Endpoint: {self.endpoint}/openai/v1/realtime")
+            console.log("Connecting to OpenAI Realtime API WebSocket...")
+            console.log(f"Headers: {headers}")
+            console.log(f"Params: {params}")
+            console.log(f"Endpoint: {self._realtime_path}")
 
             
             # Connect to the OpenAI Realtime API WebSocket

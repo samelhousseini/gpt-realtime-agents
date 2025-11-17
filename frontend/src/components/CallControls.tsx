@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -12,24 +12,50 @@ import { WaveformVisualizer } from '@/components/WaveformVisualizer';
 import { SimpleVoiceIndicator } from '@/components/SimpleVoiceIndicator';
 import { useVoiceActivity } from '@/hooks/use-voice-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { CLIENT_CONFIG } from '@/lib/constants';
+import { CLIENT_CONFIG, GPT_REALTIME_VOICES, VOICE_LIVE_VOICES, GPT_REALTIME_MODELS, VOICE_LIVE_MODELS } from '@/lib/constants';
 import { toast } from 'sonner';
 import logo from '@/assets/images/logo.png';
 
 interface CallControlsProps {
   sessionState: SessionState;
-  onStartCall: (connectionMode: ConnectionMode) => void;
+  onStartCall: (connectionMode: ConnectionMode, voice?: string, model?: string) => void;
   onEndCall: () => void;
   onToggleMute: () => void;
   getCurrentMediaStream: () => MediaStream | null;
+  onConnectionModeChange: (mode: ConnectionMode) => void;
 }
 
-export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMute, getCurrentMediaStream }: CallControlsProps) {
+export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMute, getCurrentMediaStream, onConnectionModeChange }: CallControlsProps) {
   const isMobile = useIsMobile();
   const mediaStream = getCurrentMediaStream();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isCallingMobile, setIsCallingMobile] = useState(false);
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('webrtc');
+  
+  const connectionMode = sessionState.connectionMode || 'webrtc';
+  
+  // Get voice and model lists based on connection mode
+  const voiceList = connectionMode === 'voice-live' ? VOICE_LIVE_VOICES : GPT_REALTIME_VOICES;
+  const modelList = connectionMode === 'voice-live' ? VOICE_LIVE_MODELS : GPT_REALTIME_MODELS;
+  
+  // Initialize with first item from the appropriate list, or fallback to CLIENT_CONFIG
+  const [selectedVoice, setSelectedVoice] = useState<string>(() => {
+    const list = connectionMode === 'voice-live' ? VOICE_LIVE_VOICES : GPT_REALTIME_VOICES;
+    return list.length > 0 ? list[0] : CLIENT_CONFIG.voice;
+  });
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    const list = connectionMode === 'voice-live' ? VOICE_LIVE_MODELS : GPT_REALTIME_MODELS;
+    return list.length > 0 ? list[0] : CLIENT_CONFIG.deployment;
+  });
+
+  // Update selected voice and model when connection mode changes
+  useEffect(() => {
+    if (voiceList.length > 0 && !voiceList.includes(selectedVoice)) {
+      setSelectedVoice(voiceList[0]);
+    }
+    if (modelList.length > 0 && !modelList.includes(selectedModel)) {
+      setSelectedModel(modelList[0]);
+    }
+  }, [connectionMode, voiceList, modelList]);
   
   const voiceActivity = useVoiceActivity(
     sessionState.status === 'connected' && !sessionState.isMuted ? mediaStream : null,
@@ -106,7 +132,12 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
           <div className="flex items-center gap-3 flex-shrink-0">
             <img src={logo} alt="VoiceCare Logo" className="h-12 flex-shrink-0" />
             <Button
-              onClick={isConnected ? onEndCall : () => onStartCall(connectionMode)}
+              onClick={isConnected ? onEndCall : () => {
+                console.log('[CallControls] Starting call with:', { connectionMode, selectedVoice, selectedModel });
+                console.log('[CallControls] Voice list:', voiceList);
+                console.log('[CallControls] Model list:', modelList);
+                onStartCall(connectionMode, selectedVoice, selectedModel);
+              }}
               disabled={isConnecting}
               variant={isConnected ? "destructive" : "default"}
               size="lg"
@@ -128,14 +159,53 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
             </Button>
 
             {/* Connection Mode Dropdown */}
-            <Select value={connectionMode} onValueChange={(value: ConnectionMode) => setConnectionMode(value)}>
+            <Select 
+              value={connectionMode} 
+              onValueChange={(value: ConnectionMode) => onConnectionModeChange(value)}
+              disabled={isConnected || isConnecting}
+            >
               <SelectTrigger className="w-[180px] h-10 flex-shrink-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="webrtc">WebRTC Direct</SelectItem>
-                <SelectItem value="websocket-direct">WebSocket Direct</SelectItem>
                 <SelectItem value="voice-live">Voice Live API</SelectItem>                
+              </SelectContent>
+            </Select>
+
+            {/* Voice Selection Dropdown */}
+            <Select 
+              value={selectedVoice} 
+              onValueChange={setSelectedVoice}
+              disabled={isConnected || isConnecting}
+            >
+              <SelectTrigger className="w-[180px] h-10 flex-shrink-0">
+                <SelectValue placeholder="Select voice" />
+              </SelectTrigger>
+              <SelectContent>
+                {voiceList.map((voice) => (
+                  <SelectItem key={voice} value={voice}>
+                    {voice}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Model Selection Dropdown */}
+            <Select 
+              value={selectedModel} 
+              onValueChange={setSelectedModel}
+              disabled={isConnected || isConnecting}
+            >
+              <SelectTrigger className="w-[180px] h-10 flex-shrink-0">
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                {modelList.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             
@@ -218,7 +288,7 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
           <div className="flex items-center gap-2 flex-1 justify-center min-w-0">
             <Input
               type="tel"
-              placeholder="Enter your mobile number"
+              placeholder="Enter your phone number"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCallMobile()}
@@ -242,7 +312,7 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
             {/* Inbound Calling Info */}
             <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg flex-shrink-0">
               <Phone size={20} className="text-primary" />
-              <span className="text-sm font-medium whitespace-nowrap">Call Toll-Free: +1 866 709 9132</span>
+              <span className="text-sm font-medium whitespace-nowrap">Call: +1 866 709 9132</span>
             </div>
           </div>
 

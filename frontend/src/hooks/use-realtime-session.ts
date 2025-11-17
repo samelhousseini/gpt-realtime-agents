@@ -2,10 +2,9 @@ import { useState, useRef, useCallback } from 'react';
 import { ChatMessage } from '@/lib/types';
 import { RealtimeSessionBase, SessionState } from './realtime/core/RealtimeSessionBase';
 import { WebRTCConnection } from './realtime/connections/WebRTCConnection';
-import { WebSocketDirectConnection } from './realtime/connections/WebSocketDirectConnection';
 import { VoiceLiveConnection } from './realtime/connections/VoiceLiveConnection';
 
-export type ConnectionMode = 'webrtc' | 'websocket-direct' | 'voice-live';
+export type ConnectionMode = 'webrtc' | 'voice-live';
 
 interface UseRealtimeSessionProps {
   onMessage: (message: ChatMessage) => void;
@@ -16,6 +15,7 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
   const [sessionState, setSessionState] = useState<SessionState>({
     status: 'idle',
     isMuted: false,
+    connectionMode: 'webrtc',
   });
 
   const sessionRef = useRef<{
@@ -35,38 +35,34 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
   /**
    * Start session with specified connection mode
    */
-  const startSession = useCallback(async (mode: ConnectionMode = 'webrtc') => {
+  const startSession = useCallback(async (mode: ConnectionMode = 'webrtc', voice?: string, model?: string) => {
     try {
       setSessionState(prev => ({ ...prev, status: 'connecting' }));
 
       // Create appropriate connection based on mode
       let connection: RealtimeSessionBase;
+        console.log('[ConnectionMode]', 'Selected mode:', mode);
+        console.log('[ConnectionMode]', 'Voice:', voice, 'Model:', model);
+        switch (mode) {
+          case 'webrtc':
+            console.log('[RealtimeSession]', 'Instantiating WebRTC connection');
+            connection = new WebRTCConnection({
+          onMessage,
+          onStateChange: handleStateChange,
+            }, voice, model);
+            break;
 
-      switch (mode) {
-        case 'webrtc':
-          connection = new WebRTCConnection({
-            onMessage,
-            onStateChange: handleStateChange,
-          });
-          break;
+          case 'voice-live':
+            console.log('[RealtimeSession]', 'Instantiating Voice Live connection');
+            connection = new VoiceLiveConnection({
+          onMessage,
+          onStateChange: handleStateChange,
+            }, voice, model);
+            break;
 
-        case 'websocket-direct':
-          connection = new WebSocketDirectConnection({
-            onMessage,
-            onStateChange: handleStateChange,
-          });
-          break;
-
-        case 'voice-live':
-          connection = new VoiceLiveConnection({
-            onMessage,
-            onStateChange: handleStateChange,
-          });
-          break;
-
-        default:
-          throw new Error(`Unknown connection mode: ${mode}`);
-      }
+          default:
+            throw new Error(`Unknown connection mode: ${mode}`);
+        }
 
       // Connect
       await connection.connect();
@@ -76,6 +72,9 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
         connection,
         connectionMode: mode,
       };
+
+      // Update session state with connection mode
+      setSessionState(prev => ({ ...prev, connectionMode: mode }));
 
       console.log('[RealtimeSession]', `Connected using ${mode} mode`);
     } catch (error: any) {
@@ -95,12 +94,14 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
       connection.disconnect();
     }
 
+    const currentMode = sessionRef.current.connectionMode || 'webrtc';
+    
     sessionRef.current = {
       connection: null,
       connectionMode: null,
     };
 
-    setSessionState({ status: 'idle', isMuted: false });
+    setSessionState({ status: 'idle', isMuted: false, connectionMode: currentMode });
     console.log('[RealtimeSession]', 'Session ended');
   }, []);
 
@@ -140,6 +141,13 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
     return connection ? connection.getMediaStream() : null;
   }, []);
 
+  /**
+   * Update connection mode without starting session
+   */
+  const setConnectionMode = useCallback((mode: ConnectionMode) => {
+    setSessionState(prev => ({ ...prev, connectionMode: mode }));
+  }, []);
+
   return {
     sessionState,
     startSession,
@@ -148,5 +156,6 @@ export function useRealtimeSession({ onMessage, onStateChange }: UseRealtimeSess
     sendTextMessage,
     isConnected,
     getCurrentMediaStream,
+    setConnectionMode,
   };
 }

@@ -8,6 +8,13 @@ from openai.types.beta.realtime import (InputAudioBufferAppendEvent, SessionUpda
 from openai.types.beta.realtime.session_update_event import Session, SessionTurnDetection
 from typing import Any, Literal, Optional
 from tools import Tool
+import json
+import os
+
+# Load session configuration from root directory
+_config_path = Path(__file__).parent.parent.parent / "session_config.json"
+with open(_config_path, 'r') as f:
+    SESSION_CONFIG = json.load(f)
 
 def transform_acs_to_openai_format(msg_data: Any, 
                                    model: Optional[str], 
@@ -34,41 +41,33 @@ def transform_acs_to_openai_format(msg_data: Any,
     # Set the initial configuration for the OpenAI Realtime API by sending a session.update message.
     try:
         if msg_data["kind"] == "AudioMetadata":
-            if use_voicelive_for_acs:
-                oai_message = {
-                    "type": "session.update",
-                    "session": {
-                        "type": "realtime",
-                        "tool_choice": "auto" if len(tools) > 0 else "none",
-                        "tools": [tool.schema for tool in tools.values()],
-                        "turn_detection": {
-                            "type": 'server_vad',
-                            "threshold": 0.7, # Adjust if necessary
-                            "prefix_padding_ms": 300, # Adjust if necessary
-                            "silence_duration_ms": 500 # Adjust if necessary
-                        },
-                    }
-                }
-
-                if temperature is not None:
-                    oai_message["session"]["temperature"] = temperature
-                if max_tokens is not None:
-                    oai_message["session"]["max_response_output_tokens"] = max_tokens
-                if disable_audio is not None:
-                    oai_message["session"]["disable_audio"] = disable_audio
-            else:
-                oai_message = {
-                    "type": "session.update",
-                    "session": {
-                        "type": "realtime",
-                        "tool_choice": "auto" if len(tools) > 0 else "none",
-                        "tools": [tool.schema for tool in tools.values()],
-                    }
-                }
-
+            # Load base configuration from session_config.json
+            config_key = "voicelive" if use_voicelive_for_acs else "realtime"
+            session_data = json.loads(json.dumps(SESSION_CONFIG[config_key]))  # Deep copy
+            
+            # Add tools configuration
+            session_data["tool_choice"] = "auto" if len(tools) > 0 else "none"
+            session_data["tools"] = [tool.schema for tool in tools.values()]
+            
+            # Add system instructions if provided
             if system_message is not None:
-                oai_message["session"]["instructions"] = system_message
-
+                session_data["instructions"] = system_message
+            
+            # Override optional parameters if provided (these may already be in config with null values)
+            if temperature is not None:
+                session_data["temperature"] = temperature
+            if max_tokens is not None:
+                session_data["max_response_output_tokens"] = max_tokens
+            if disable_audio is not None:
+                session_data["disable_audio"] = disable_audio
+            
+            # Remove null values from session_data
+            session_data = {k: v for k, v in session_data.items() if v is not None}
+            
+            oai_message = {
+                "type": "session.update",
+                "session": session_data
+            }
 
         # Message from Azure Communication Services with audio data.
         # Transform the message to the OpenAI Realtime API format.
@@ -99,7 +98,7 @@ def transform_openai_to_acs_format(msg_data: Any) -> Optional[Any]:
 
     # Message from the OpenAI Realtime API with audio data.
     # Transform the message to the Azure Communication Services format.
-    if msg_data["type"] == "response.output_audio.delta":
+    if (msg_data["type"] == "response.output_audio.delta") or (msg_data["type"] == "response.audio.delta"):
         acs_message = {
             "kind": "AudioData",
             "audioData": {
@@ -124,7 +123,7 @@ def transform_openai_to_acs_format(msg_data: Any) -> Optional[Any]:
 
 
 
-async def load_prompt_from_markdown(file_path):
+def load_prompt_from_markdown(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         prompt = file.read()
     return prompt

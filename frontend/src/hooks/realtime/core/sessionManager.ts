@@ -12,6 +12,8 @@ export interface SessionCredentials {
   sessionId: string;
   ephemeralKey: string;
   realtimeUrl: string;
+  voice: string;
+  model: string;
 }
 
 export interface ToolsData {
@@ -50,19 +52,34 @@ export async function ensureToolsLoaded(): Promise<ToolsData> {
 
 /**
  * Request ephemeral session credentials from backend
- * Used by WebRTC and WebSocket Direct modes
+ * Used by WebRTC and Voice Live modes
  */
-export async function requestSessionCredentials(): Promise<SessionCredentials> {
+export async function requestSessionCredentials(
+  connectionMode: 'webrtc' | 'voice-live' = 'webrtc',
+  voice?: string,
+  model?: string
+): Promise<SessionCredentials> {
+
+  console.log('[SessionManager]', `Requesting session credentials for mode: ${connectionMode}, voice: ${voice}, model: ${model}`);
+  console.log('[SessionManager]', `Default entity values: voice=${CONFIG.voice}, model=${CONFIG.deployment}`);
+
   const response = await fetch(`${CONFIG.backendBaseUrl}/session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      deployment: CONFIG.deployment,
-      voice: CONFIG.voice,
+      deployment: model || CONFIG.deployment,
+      voice: voice || CONFIG.voice,
+      connection_mode: connectionMode,
     }),
   });
+
+  console.log('[SessionManager]', `Request payload: ${JSON.stringify({
+    deployment: model || CONFIG.deployment,
+    voice: voice || CONFIG.voice,
+    connection_mode: connectionMode,
+  })}`);
 
   if (!response.ok) {
     const details = await response.text();
@@ -70,10 +87,19 @@ export async function requestSessionCredentials(): Promise<SessionCredentials> {
   }
 
   const payload = await response.json();
+  console.log('[SessionManager]', `Received session ID: ${payload.session_id}`);
+  console.log('[SessionManager]', `Ephemeral key: ${payload.ephemeral_key}`);
+  console.log('[SessionManager]', `Realtime URL: ${payload.realtimeUrl}`);
+
+  const finalVoice = voice || CONFIG.voice;
+  const finalModel = model || CONFIG.deployment;
+
   return {
     sessionId: payload.session_id,
     ephemeralKey: payload.ephemeral_key,
     realtimeUrl: payload.realtimeUrl,
+    voice: finalVoice,
+    model: finalModel,
   };
 }
 
