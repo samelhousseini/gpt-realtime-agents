@@ -60,15 +60,25 @@
       "cedar"
     ],
     "voiceLiveVoices": [
+      "en-US-AndrewMultilingualNeural",
       "en-US-Ava:DragonHDLatestNeural",
       "en-US-Andrew:DragonHDLatestNeural",
       "en-US-Jenny:DragonHDLatestNeural",
-      "en-US-AriaNeural",
-      "en-GB-LibbyNeural",
-      "de-DE-KatjaNeural",
-      "fr-FR-DeniseNeural",
+      "en-GB-Ollie:DragonHDLatestNeural",
+      "de-DE-Florian:DragonHDLatestNeural",
+      "fr-FR-Remy:DragonHDLatestNeural",
+      "ar-SA-ZariyahNeural",
+      "ar-SA-HamedNeural",
+      "it-IT-Isabella:DragonHDLatestNeural",
       "es-ES-Tristan:DragonHDLatestNeural",
-      "es-ES-Ximena:DragonHDLatestNeural"
+      "es-ES-Ximena:DragonHDLatestNeural",
+      "pt-BR-Macerio:DragonHDLatestNeural",
+      "ja-JP-Masaru:DragonHDLatestNeural",
+      "ko-KR-Hyunsu:DragonHDLatestNeural",
+      "zu-ZA-ThandoNeural",
+      "zu-ZA-ThembaNeural",
+      "zh-CN-XiaoxiaoNeural",
+      "zh-CN-Xiaochen:DragonHDLatestNeural"
     ],
     "gptRealtimeModels": [
       "gpt-realtime"
