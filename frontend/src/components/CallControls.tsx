@@ -289,7 +289,6 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
             <Input
               type="tel"
               placeholder="Enter your phone number"
-              value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCallMobile()}
               className="w-full max-w-[220px]"
@@ -303,7 +302,7 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
               className="gap-2 flex-shrink-0 whitespace-nowrap"
             >
               <PhoneCall size={20} />
-              {isCallingMobile ? 'Calling...' : 'Call Mobile'}
+              {isCallingMobile ? 'Calling...' : 'Call Phone'}
             </Button>
             
             {/* Vertical Separator */}
