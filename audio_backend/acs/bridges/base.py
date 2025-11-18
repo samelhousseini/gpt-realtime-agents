@@ -20,12 +20,21 @@ class FastAPIWebSocketAdapter:
     async def send_str(self, data: str) -> None:
         if self._closed:
             return
-        await self.websocket.send_text(data)
+        try:
+            await self.websocket.send_text(data)
+        except Exception as e:
+            print(f"Exception happened when sending websocket\n{e}")
+            return
 
     async def send_json(self, data: Dict[str, Any]) -> None:
         if self._closed:
             return
-        await self.websocket.send_json(data)
+        
+        try:
+            await self.websocket.send_json(data)
+        except Exception as e:
+            print(f"Exception happened when sending websocket\n{e}")
+            return
 
     def __aiter__(self) -> AsyncIterator[Any]:
         return self

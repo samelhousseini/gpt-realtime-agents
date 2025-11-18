@@ -279,6 +279,7 @@ async def runtime_config() -> PlainTextResponse:
     
     # Get voice and model selections from config
     selections = get_voice_and_model_selections()
+    acs_source_number = os.environ.get("ACS_PHONE_NUMBER").replace('"', '').replace("'", "")
     
     payload = json.dumps({
         "backendBaseUrl": FRONTEND_BACKEND_BASE_URL,
@@ -290,6 +291,7 @@ async def runtime_config() -> PlainTextResponse:
             "gptRealtime": selections["gptRealtimeModels"],
             "voiceLive": selections["voiceLiveModels"],
         },
+        "SourcePhoneNumber": acs_source_number,
     })
     script = f"window.__APP_CONFIG__ = Object.freeze({payload});"
     return PlainTextResponse(content=script, media_type="application/javascript")

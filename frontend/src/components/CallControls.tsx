@@ -12,7 +12,7 @@ import { WaveformVisualizer } from '@/components/WaveformVisualizer';
 import { SimpleVoiceIndicator } from '@/components/SimpleVoiceIndicator';
 import { useVoiceActivity } from '@/hooks/use-voice-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { CLIENT_CONFIG, GPT_REALTIME_VOICES, VOICE_LIVE_VOICES, GPT_REALTIME_MODELS, VOICE_LIVE_MODELS } from '@/lib/constants';
+import { CLIENT_CONFIG, GPT_REALTIME_VOICES, VOICE_LIVE_VOICES, GPT_REALTIME_MODELS, VOICE_LIVE_MODELS, ACS_SOURCE_PHONE_NUMBER } from '@/lib/constants';
 import { toast } from 'sonner';
 import logo from '@/assets/images/logo.png';
 
@@ -28,7 +28,7 @@ interface CallControlsProps {
 export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMute, getCurrentMediaStream, onConnectionModeChange }: CallControlsProps) {
   const isMobile = useIsMobile();
   const mediaStream = getCurrentMediaStream();
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(ACS_SOURCE_PHONE_NUMBER);
   const [isCallingMobile, setIsCallingMobile] = useState(false);
   
   const connectionMode = sessionState.connectionMode || 'webrtc';
@@ -310,10 +310,12 @@ export function CallControls({ sessionState, onStartCall, onEndCall, onToggleMut
             <div className="h-8 w-px bg-border mx-2 flex-shrink-0" />
 
             {/* Inbound Calling Info */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg flex-shrink-0">
-              <Phone size={20} className="text-primary" />
-              <span className="text-sm font-medium whitespace-nowrap">Call: +1 866 709 9132</span>
-            </div>
+            {ACS_SOURCE_PHONE_NUMBER && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 rounded-lg flex-shrink-0">
+                <Phone size={20} className="text-primary" />
+                <span className="text-sm font-medium whitespace-nowrap">Call: {ACS_SOURCE_PHONE_NUMBER}</span>
+              </div>
+            )}
           </div>
 
           {/* Right Section: Status Badge */}

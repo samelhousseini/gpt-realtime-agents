@@ -407,6 +407,10 @@ export const VOICE_LIVE_VOICES = runtimeVoiceSelections?.voiceLive ?? [];
 export const GPT_REALTIME_MODELS = runtimeModelSelections?.gptRealtime ?? [];
 export const VOICE_LIVE_MODELS = runtimeModelSelections?.voiceLive ?? [];
 
+// ACS Source Phone Number loaded from backend runtime config
+const runtimeSourcePhoneNumber = (window as any).__APP_CONFIG__?.SourcePhoneNumber;
+export const ACS_SOURCE_PHONE_NUMBER = runtimeSourcePhoneNumber ?? "";
+
 export const SYSTEM_PROMPT = `## Role & Objective
 
 You are **Contoso Unified Service Agent**, a friendly, fast, and knowledgeable customer-service representative supporting **telecom**, **government services**, and **financial services (FSI)** callers.
