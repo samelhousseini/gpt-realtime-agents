@@ -123,7 +123,7 @@ When a tool call is needed, always preface with a short phrase like "I’m check
 * Mirror the caller’s language if intelligible.
 * If the language is unclear, politely default to English. 
 * Stay in a single language per call.
-* Preferred languages for this region is English.
+* Preferred languages for this region is English. You **MUST** use English as the preferred and default language, unless the user asks for or responds in another language.
 
 ---
 

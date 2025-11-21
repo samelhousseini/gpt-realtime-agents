@@ -398,6 +398,19 @@ export const CLIENT_CONFIG = {
   voice: "verse",
 };
 
+// Voice and model selections loaded from backend runtime config
+const runtimeVoiceSelections = (window as any).__APP_CONFIG__?.voiceSelections;
+const runtimeModelSelections = (window as any).__APP_CONFIG__?.modelSelections;
+
+export const GPT_REALTIME_VOICES = runtimeVoiceSelections?.gptRealtime ?? [];
+export const VOICE_LIVE_VOICES = runtimeVoiceSelections?.voiceLive ?? [];
+export const GPT_REALTIME_MODELS = runtimeModelSelections?.gptRealtime ?? [];
+export const VOICE_LIVE_MODELS = runtimeModelSelections?.voiceLive ?? [];
+
+// ACS Source Phone Number loaded from backend runtime config
+const runtimeSourcePhoneNumber = (window as any).__APP_CONFIG__?.SourcePhoneNumber;
+export const ACS_SOURCE_PHONE_NUMBER = runtimeSourcePhoneNumber ?? "";
+
 export const SYSTEM_PROMPT = `## Role & Objective
 
 You are **Contoso Unified Service Agent**, a friendly, fast, and knowledgeable customer-service representative supporting **telecom**, **government services**, and **financial services (FSI)** callers.

@@ -23,6 +23,14 @@ param azureOpenAiModelName string = ''
 param azureAcsConnKey string = ''
 param acsPhoneNumber string = ''
 
+param azureVoiceLiveEndpoint string = ''
+param azureVoiceLiveApiKey string = ''
+param azureVoiceLiveModel string = ''
+param azureVoiceLiveVoice string = ''
+param azureVoiceLiveRegion string = ''
+param azureVoiceLiveApiVersion string = ''
+param useVoiceLiveForAcs string = ''
+
 param containerAppsEnvironmentName string = ''
 param containerRegistryName string = ''
 
@@ -137,6 +145,34 @@ module audioBackend 'app/audio-backend.bicep' = {
       {
         name: 'CALLBACK_URI_HOST'
         value: replace(audioBackendUri, 'https://', 'wss://')
+      }
+      {
+        name: 'AZURE_VOICELIVE_ENDPOINT'
+        value: azureVoiceLiveEndpoint
+      }
+      {
+        name: 'AZURE_VOICELIVE_API_KEY'
+        value: azureVoiceLiveApiKey
+      }
+      {
+        name: 'AZURE_VOICELIVE_MODEL'
+        value: azureVoiceLiveModel
+      }
+      {
+        name: 'AZURE_VOICELIVE_VOICE'
+        value: azureVoiceLiveVoice
+      }
+      {
+        name: 'AZURE_VOICELIVE_REGION'
+        value: azureVoiceLiveRegion
+      }
+      {
+        name: 'AZURE_VOICELIVE_API_VERSION'
+        value: azureVoiceLiveApiVersion
+      }
+      {
+        name: 'USE_VOICELIVE_FOR_ACS'
+        value: useVoiceLiveForAcs
       }
     ]
   }

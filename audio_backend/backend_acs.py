@@ -20,6 +20,9 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from rich.console import Console
+from common.config import get_voice_live_config, VoiceLiveConfig, get_browser_realtime_config
+from acs.bridges.gpt_realtime_bridge import GptRealtimeBridge
+from acs.bridges.voice_live_bridge import VoiceLiveBridge
 
 # Add acs directory to path for imports
 print(f"Sys importing {str(Path(__file__).parent )}")
@@ -30,6 +33,7 @@ from acs.rtmt import RTMiddleTier
 from acs.callback_server import EventHandler
 from acs.helpers import load_prompt_from_markdown
 from acs.tools import *
+
 
 from tools_registry import *
 
@@ -42,13 +46,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["ACS Phone Calls"])
 
 # Environment variables - matching .env file
-llm_endpoint_ws = os.environ.get("AZURE_OPENAI_ENDPOINT_WS")
-llm_deployment = os.environ.get("AZURE_OPENAI_MODEL_NAME")
-llm_key = os.environ.get("AZURE_OPENAI_API_KEY")
-acs_source_number = os.environ.get("ACS_PHONE_NUMBER")
-acs_connection_string = os.environ.get("AZURE_ACS_CONN_KEY")
-acs_callback_path = os.environ.get("CALLBACK_EVENTS_URI")
-acs_media_streaming_websocket_host = os.environ.get("CALLBACK_URI_HOST")
+llm_endpoint_ws = os.environ.get("AZURE_OPENAI_ENDPOINT_WS").replace('"', '').replace("'", "")
+llm_deployment = os.environ.get("AZURE_OPENAI_MODEL_NAME").replace('"', '').replace("'", "")
+llm_key = os.environ.get("AZURE_OPENAI_API_KEY").replace('"', '').replace("'", "")
+acs_source_number = os.environ.get("ACS_PHONE_NUMBER").replace('"', '').replace("'", "")
+acs_connection_string = os.environ.get("AZURE_ACS_CONN_KEY").replace('"', '').replace("'", "")
+acs_callback_path = os.environ.get("CALLBACK_EVENTS_URI").replace('"', '').replace("'", "")
+acs_media_streaming_websocket_host = os.environ.get("CALLBACK_URI_HOST").replace('"', '').replace("'", "")
 
 
 print("LLM Endpoint WS:", llm_endpoint_ws)
@@ -65,7 +69,10 @@ llm_credential = AzureKeyCredential(llm_key) if llm_key else None
 # Global instances (initialized on startup)
 caller: Optional[AcsCaller] = None
 rtmt: Optional[RTMiddleTier] = None
+voice_live_rtmt: Optional[RTMiddleTier] = None
 event_handler: Optional[EventHandler] = None
+gpt_bridge: Optional[GptRealtimeBridge] = None
+voice_live_bridge: Optional[VoiceLiveBridge] = None
 
 
 class PhoneCallRequest(BaseModel):
@@ -74,93 +81,86 @@ class PhoneCallRequest(BaseModel):
 
 
 # ============================================================================
-# FastAPI WebSocket Adapter for RTMiddleTier
-# ============================================================================
-class FastAPIWebSocketAdapter:
-    """
-    Adapter to make FastAPI WebSocket compatible with aiohttp WebSocketResponse API.
-    
-    This adapter allows RTMiddleTier (which expects aiohttp WebSocketResponse) to work 
-    seamlessly with FastAPI WebSocket without any modifications to RTMiddleTier code.
-    """
-    
-    def __init__(self, websocket: WebSocket):
-        self.websocket = websocket
-        self.headers = {}  # FastAPI WebSocket doesn't expose headers the same way
-        self._closed = False
-    
-    async def send_str(self, data: str):
-        """Send text data to the WebSocket"""
-        if not self._closed:
-            try:
-                await self.websocket.send_text(data)
-            except Exception as e:
-                console.log(f"[ADAPTER] Error sending text: {e}")
-                self._closed = True
-    
-    async def send_json(self, data: dict):
-        """Send JSON data to the WebSocket"""
-        if not self._closed:
-            try:
-                await self.websocket.send_json(data)
-            except Exception as e:
-                console.log(f"[ADAPTER] Error sending JSON: {e}")
-                self._closed = True
-    
-    def __aiter__(self):
-        """Return self as async iterator"""
-        return self
-    
-    async def __anext__(self):
-        """Async iterator for receiving messages - mimics aiohttp.WSMsgType"""
-        try:
-            # Receive message from FastAPI WebSocket
-            raw_message = await self.websocket.receive()
-            
-            # Handle different message types
-            if "text" in raw_message:
-                # Create an aiohttp-compatible message object with .type and .data attributes
-                ws_message = type('WSMessage', (), {
-                    'type': aiohttp.WSMsgType.TEXT,
-                    'data': raw_message["text"]
-                })()
-                return ws_message
-            elif "bytes" in raw_message:
-                ws_message = type('WSMessage', (), {
-                    'type': aiohttp.WSMsgType.BINARY,
-                    'data': raw_message["bytes"]
-                })()
-                return ws_message
-            elif raw_message.get("type") == "websocket.disconnect":
-                self._closed = True
-                raise StopAsyncIteration
-            else:
-                # Unknown message type, continue iteration
-                return await self.__anext__()
-                
-        except WebSocketDisconnect:
-            self._closed = True
-            raise StopAsyncIteration
-        except Exception as e:
-            console.log(f"[ADAPTER] Error receiving message: {e}")
-            self._closed = True
-            raise StopAsyncIteration
-
-
-# ============================================================================
 # Initialization Function
 # ============================================================================
 async def initialize_acs_components():
     """Initialize ACS components with configuration"""
-    global caller, rtmt, event_handler
+    global caller, rtmt, voice_live_rtmt, event_handler, gpt_bridge, voice_live_bridge
     
     console.log("[ACS INIT] Initializing ACS phone call components...")
     
     # Initialize ACS caller
     print("Initialize ACS caller", acs_source_number, acs_connection_string, acs_callback_path, acs_media_streaming_websocket_host)
 
+    
+    # Load system prompt
+    print("Loading system prompt for ACS...")
+    system_prompt_path = Path(__file__).parent.parent / "prompts" / "system_prompt.txt"
+    
+    try:
+        system_prompt = load_prompt_from_markdown(system_prompt_path)
+        console.log("[ACS INIT] ✅ System prompt loaded from:", str(system_prompt_path))
+    except Exception as e:
+        console.log(f"[ACS INIT] ⚠️  Error loading system prompt: {e}")
+        system_prompt = "You are a helpful AI assistant handling phone calls."
+    
+    # Setup placeholder Voice Live bridge if configuration is available
+    voice_live_config = None
+    try:
+        voice_live_config = get_voice_live_config()
+        
+        console.log("[ACS INIT] Voice Live Config loaded", voice_live_config)
+        
+        voice_live_rtmt = RTMiddleTier(
+            voice_live_config.endpoint,
+            voice_live_config.default_model,
+            AzureKeyCredential(voice_live_config.api_key),
+            realtime_path="/voice-live/realtime",
+            extra_query_params={
+                "api-version": voice_live_config.api_version,
+                "region": voice_live_config.region,
+            },
+            useVoiceLiveForAcs=voice_live_config.use_voicelive_for_acs if voice_live_config else False,
+        )
+        voice_live_rtmt.selected_voice = voice_live_config.default_voice
+        voice_live_rtmt.system_message = system_prompt
+        register_tools_from_registry(voice_live_rtmt, TOOLS_REGISTRY)
+        voice_live_bridge = VoiceLiveBridge(voice_live_rtmt)
+        console.log("[ACS INIT] ✅ Voice Live bridge configured")
+    except Exception as exc:
+        console.log(f"[ACS INIT] ⚠️ Voice Live config unavailable: {exc}")
+
+
+    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
+    if llm_endpoint_ws and llm_deployment and llm_credential:
+        
+        realtime_config = get_browser_realtime_config()
+        
+        rtmt = RTMiddleTier(
+            llm_endpoint_ws, 
+            llm_deployment, 
+            llm_credential,
+            realtime_path="openai/v1/realtime",
+            useVoiceLiveForAcs=voice_live_config.use_voicelive_for_acs if voice_live_config else False,
+        )
+        rtmt.selected_voice = realtime_config.default_voice
+        rtmt.system_message = system_prompt
+        gpt_bridge = GptRealtimeBridge(rtmt)
+
+        # Register all tools at once
+        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
+        
+        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
+    else:
+        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
+        
     if acs_source_number and acs_connection_string and acs_callback_path and acs_media_streaming_websocket_host:
-        acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/realtime-acs"
+
+        if not voice_live_config.use_voicelive_for_acs:
+            acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/realtime-acs"
+        else:
+            acs_media_streaming_websocket_path = f"{acs_media_streaming_websocket_host}/api/voice-live-acs"
+                
         caller = AcsCaller(
             source_number=acs_source_number,
             acs_connection_string=acs_connection_string,
@@ -170,71 +170,14 @@ async def initialize_acs_components():
         console.log("[ACS INIT] ✅ ACS Caller initialized")
     else:
         console.log("[ACS INIT] ⚠️  ACS Caller not configured (missing environment variables)")
-    
-    # Load system prompt
-    system_prompt = None
-    system_prompt_path = Path(__file__).parent.parent / "prompts" / "system_prompt.txt"
 
-    if system_prompt_path.exists():
-        system_prompt = await load_prompt_from_markdown(str(system_prompt_path))
-        console.log(f"[ACS INIT] ✅ System prompt loaded from: {system_prompt_path}")
-    else:
-        # Try alternative location
-        system_prompt_path = Path(__file__).parent / "system_prompt.md"
-        if system_prompt_path.exists():
-            system_prompt = await load_prompt_from_markdown(str(system_prompt_path))
-            console.log(f"[ACS INIT] ✅ System prompt loaded from: {system_prompt_path}")
-        else:
-            console.log("[ACS INIT] ⚠️  System prompt not found, using default")
-            system_prompt = "You are a helpful AI assistant handling phone calls."
-    
-    # Initialize RTMiddleTier (WebSocket-based middle tier for ACS)
-    if llm_endpoint_ws and llm_deployment and llm_credential:
-        rtmt = RTMiddleTier(llm_endpoint_ws, llm_deployment, llm_credential)
-        rtmt.system_message = system_prompt
-        
-        # Add example tool (can be customized)
-        _weather_tool_schema = {
-            "type": "function",
-            "name": "get_weather_today",
-            "description": "Retrieve today's weather at a specified location.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The location to get weather information for."
-                    }
-                },
-                "required": ["location"],
-                "additionalProperties": False
-            }
-        }
-        
-        async def _report_weather_tool(args):
-            location = args.get("location", "Seattle")
-            weather = f"The weather in {location} is raining with a high of 35°F and a low of 15°F."
-            console.log(f"[FUNCTION CALL] Reporting weather for {location}: {weather}")
-            # return ToolResult({"weather_info": weather}, ToolResultDirection.TO_SERVER)
-            return {"weather_info": weather}
-        
-        rtmt.tools["get_weather_today"] = Tool(
-            target=_report_weather_tool,
-            schema=_weather_tool_schema
-        )
 
-        # Register all tools at once
-        register_tools_from_registry(rtmt, TOOLS_REGISTRY)
-        
-        console.log("[ACS INIT] ✅ RTMiddleTier (WebSocket) initialized")
-    else:
-        console.log("[ACS INIT] ⚠️  RTMiddleTier not configured (missing Azure OpenAI settings)")
-    
     # Initialize event handler
     if caller:
         event_handler = EventHandler(caller)
         console.log("[ACS INIT] ✅ Event handler initialized")
     
+
     console.log("[ACS INIT] 🚀 ACS phone integration ready")
 
 
@@ -292,19 +235,14 @@ async def acs_bridge_handler(websocket: WebSocket):
     await websocket.accept()
     console.log("[ACS-BRIDGE] 🔌 Azure Communication Services connected to WebSocket")
     
-    if rtmt is None:
-        console.log("[ACS-BRIDGE] ❌ RTMiddleTier not initialized")
-        await websocket.close(code=1011, reason="RTMiddleTier not configured")
+    if gpt_bridge is None:
+        console.log("[ACS-BRIDGE] ❌ GPT bridge not initialized")
+        await websocket.close(code=1011, reason="Bridge not configured")
         return
     
     try:
         console.log("[ACS-BRIDGE] Using WebSocket path: ACS → WebSocket → Python → WebSocket → Azure OpenAI")
-        
-        # Create adapter to make FastAPI WebSocket compatible with aiohttp API
-        adapter = FastAPIWebSocketAdapter(websocket)
-        
-        # Forward messages using WebSocket-only path (is_acs_audio_stream=True)
-        await rtmt.forward_messages(adapter, is_acs_audio_stream=True)
+        await gpt_bridge.handle(websocket)
         
         console.log("[ACS-BRIDGE] WebSocket connection closed normally")
     except WebSocketDisconnect:
@@ -317,6 +255,31 @@ async def acs_bridge_handler(websocket: WebSocket):
             await websocket.close(code=1011, reason="Internal error")
         except:
             pass
+
+
+@router.websocket("/api/voice-live-acs")
+async def voice_live_bridge_handler(websocket: WebSocket):
+    """WebSocket endpoint for ACS calls routed through Voice Live."""
+    await websocket.accept()
+    console.log("[VOICE-LIVE BRIDGE] 🔌 ACS connected to Voice Live route")
+
+    if voice_live_bridge is None:
+        console.log("[VOICE-LIVE BRIDGE] ❌ Voice Live bridge not configured")
+        await websocket.close(code=1011, reason="Voice Live not configured")
+        return
+
+    await voice_live_bridge.handle(websocket)
+    
+    # try:
+    #     await voice_live_bridge.handle(websocket)
+    # except WebSocketDisconnect:
+    #     console.log("[VOICE-LIVE BRIDGE] Client disconnected")
+    # except Exception as exc:
+    #     console.log(f"[VOICE-LIVE BRIDGE] ❌ Error: {exc}")
+    #     try:
+    #         await websocket.close(code=1011, reason="Voice Live bridge error")
+    #     except:
+    #         pass
 
 
 # ============================================================================

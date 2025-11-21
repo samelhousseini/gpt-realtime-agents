@@ -17,7 +17,7 @@ import sys
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Awaitable, Callable, Dict, List, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -45,9 +45,19 @@ sys.path.insert(0, str(Path(__file__).parent ))
 
 
 from tools_registry import *
+from common.config import (
+    get_browser_realtime_config,
+    get_voice_live_config,
+    get_voice_and_model_selections,
+)
+from services.browser_session_service import (
+    BrowserSession,
+    ConnectionMode,
+    create_browser_session,
+)
 
 
-
+console = Console()
 
 load_dotenv()
 
@@ -64,34 +74,18 @@ app.add_middleware(
 )
 
 
-def _clean_env(name: str, default: str | None = None) -> str:
-    raw = os.getenv(name, default)
-    if raw is None:
-        raise RuntimeError(f"Environment variable {name} must be set")
-    return raw.strip().strip('"').strip("'")
+browser_realtime_config = get_browser_realtime_config()
+voice_live_config = get_voice_live_config()
 
-
-REALTIME_SESSION_URL = _clean_env("AZURE_GPT_REALTIME_URL")
-WEBRTC_URL = _clean_env("WEBRTC_URL")
-DEFAULT_DEPLOYMENT = os.getenv("AZURE_GPT_REALTIME_DEPLOYMENT", "gpt-realtime")
-DEFAULT_VOICE = os.getenv("AZURE_GPT_REALTIME_VOICE", "verse")
-AZURE_API_KEY = os.getenv("AZURE_GPT_REALTIME_KEY").replace('"', '').replace("'", "")
-
-
-def _optional_env(name: str, default: str) -> str:
-    raw = os.getenv(name, default)
-    if not raw:
-        return default
-    return raw.strip().strip('"').strip("'")
 
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-FRONTEND_BACKEND_BASE_URL = _optional_env("VITE_BACKEND_BASE_URL", "http://localhost:8080/api")
+FRONTEND_BACKEND_BASE_URL = os.getenv("VITE_BACKEND_BASE_URL", "http://localhost:8080/api")
 
-print("REALTIME_SESSION_URL", REALTIME_SESSION_URL)
-print("WEBRTC_URL", WEBRTC_URL)
-print("DEFAULT_DEPLOYMENT", DEFAULT_DEPLOYMENT)
-print("DEFAULT_VOICE", DEFAULT_VOICE)
-print("AZURE_API_KEY", AZURE_API_KEY is not None)
+print("REALTIME_SESSION_URL", browser_realtime_config.realtime_session_url)
+print("WEBRTC_URL", browser_realtime_config.webrtc_url)
+print("DEFAULT_DEPLOYMENT", browser_realtime_config.default_deployment)
+print("DEFAULT_VOICE", browser_realtime_config.default_voice)
+print("AZURE_API_KEY", browser_realtime_config.azure_api_key is not None)
 
 
 
@@ -102,12 +96,16 @@ token_provider = get_bearer_token_provider(credential, "https://cognitiveservice
 class SessionRequest(BaseModel):
     deployment: str | None = Field(default=None, description="Azure OpenAI deployment name")
     voice: str | None = Field(default=None, description="Voice to request in the session")
+    connection_mode: ConnectionMode | None = Field(
+        default="webrtc",
+        description="Connection mode for the browser client",
+    )
 
 
 class SessionResponse(BaseModel):
     session_id: str = Field(..., description="Azure OpenAI WebRTC session id")
     ephemeral_key: str = Field(..., description="Ephemeral client secret for WebRTC auth")
-    webrtc_url: str = Field(..., description="Regional WebRTC entry point")
+    realtimeUrl: str = Field(..., description="Regional WebRTC entry point")
     deployment: str = Field(..., description="Deployment used when requesting the session")
     voice: str = Field(..., description="Voice registered with the session")
 
@@ -129,11 +127,17 @@ class FunctionCallResponse(BaseModel):
 ToolExecutor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]] | Dict[str, Any]]
 
 
-async def _get_auth_headers() -> Dict[str, str]:
+async def _get_auth_headers(connection_mode: ConnectionMode) -> Dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if AZURE_API_KEY:
-        headers["api-key"] = AZURE_API_KEY
-        return headers
+    
+    if connection_mode == "webrtc":
+        if browser_realtime_config.azure_api_key:
+            headers["api-key"] = browser_realtime_config.azure_api_key
+            return headers
+    else:
+        if voice_live_config.api_key:
+            headers["api-key"] = voice_live_config.api_key
+            return headers
 
     # Prefer managed identity / Azure AD tokens when available
     token = await token_provider()
@@ -163,38 +167,45 @@ async def list_tools() -> Dict[str, Any]:
 @app.post("/api/session", response_model=SessionResponse)
 async def create_session(request: SessionRequest) -> SessionResponse:
     """Issue an ephemeral key suitable for establishing a WebRTC session."""
-    deployment = request.deployment or DEFAULT_DEPLOYMENT
-    voice = request.voice or DEFAULT_VOICE
-
-    payload = {"model": deployment, "voice": voice}
-    headers = await _get_auth_headers()
-
-    print("Creating realtime session with payload:")
-    print("===================================")
-    print("REALTIME_SESSION_URL:", REALTIME_SESSION_URL)
-    print("HEADERS:", headers)
-    print("PAYLOAD:", payload)
     
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(REALTIME_SESSION_URL, headers=headers, json=payload)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:  # pragma: no cover - network specific
-            logger.exception("Failed to create realtime session: %s", exc)
-            raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    console.log(f"[create_session] Received session creation request: {request.model_dump_json()}")
+    connection_mode: ConnectionMode = request.connection_mode or "webrtc"
+    
+    if connection_mode == "voice-live":
+        deployment = request.deployment or voice_live_config.default_model
+        voice = request.voice or voice_live_config.default_voice
+    else:
+        deployment = request.deployment or browser_realtime_config.default_deployment
+        voice = request.voice or browser_realtime_config.default_voice
+    
+    console.log(f"[create_session] deployment={deployment}, voice={voice}, connection_mode={connection_mode}")
 
-    data = response.json()
-    ephemeral_key = data.get("client_secret", {}).get("value")
-    session_id = data.get("id")
-    if not ephemeral_key or not session_id:
-        raise HTTPException(status_code=500, detail="Malformed session response from Azure")
+    realtime_headers: Dict[str, str] | None = None
+    realtime_headers = await _get_auth_headers(connection_mode)
+    print("Realtime Headers:", realtime_headers)
+
+    try:
+        session: BrowserSession = await create_browser_session(
+            connection_mode=connection_mode,
+            deployment=deployment,
+            voice=voice,
+            realtime_headers=realtime_headers,
+        )
+        
+        console.log("[create_session] Created session:", session)
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Failed to create realtime session: %s", exc)
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        logger.exception("Failed to create realtime session: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
     return SessionResponse(
-        session_id=session_id,
-        ephemeral_key=ephemeral_key,
-        webrtc_url=WEBRTC_URL,
-        deployment=deployment,
-        voice=voice,
+        session_id=session.session_id,
+        ephemeral_key=session.ephemeral_key,
+        realtimeUrl=session.realtime_url,
+        deployment=session.deployment,
+        voice=session.voice,
     )
 
 
@@ -264,7 +275,24 @@ async def healthcheck() -> Dict[str, str]:
 
 @app.get("/runtime-config.js", response_class=PlainTextResponse)
 async def runtime_config() -> PlainTextResponse:
-    payload = json.dumps({"backendBaseUrl": FRONTEND_BACKEND_BASE_URL})
+    print("[BROWSER INIT] Serving runtime config with backendBaseUrl =", FRONTEND_BACKEND_BASE_URL)
+    
+    # Get voice and model selections from config
+    selections = get_voice_and_model_selections()
+    acs_source_number = os.environ.get("ACS_PHONE_NUMBER").replace('"', '').replace("'", "")
+    
+    payload = json.dumps({
+        "backendBaseUrl": FRONTEND_BACKEND_BASE_URL,
+        "voiceSelections": {
+            "gptRealtime": selections["gptRealtimeVoices"],
+            "voiceLive": selections["voiceLiveVoices"],
+        },
+        "modelSelections": {
+            "gptRealtime": selections["gptRealtimeModels"],
+            "voiceLive": selections["voiceLiveModels"],
+        },
+        "SourcePhoneNumber": acs_source_number,
+    })
     script = f"window.__APP_CONFIG__ = Object.freeze({payload});"
     return PlainTextResponse(content=script, media_type="application/javascript")
 
