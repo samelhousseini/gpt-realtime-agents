@@ -142,7 +142,7 @@ This multi-stage build does the following:
 
 If you prefer to run everything locally, follow the condensed checklist below.
 
-> **Note**: Manual setup for local development is not preferred because it is likely that you might encounter some errors when running the below commands for the first time. This depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described below. 
+> **Note**: Manual setup for local development is not preferred because it is likely that you might encounter some errors when running the below commands for the first time. This is because it depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described above. 
 
 ### Prerequisites
 - Python 3.10+
@@ -195,7 +195,7 @@ uvicorn audio_backend.backend:app --host 0.0.0.0 --port 8080
 Navigate to `http://localhost:8080/` to verify the React UI and API endpoints.
 
 > **Note**: Make sure to set up ngrok if you are using Azure Communication Services for telephony features during local development.
-> **Note**: It is likely that you might encounter some errors when running the above commands for the first time. This depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described below.
+> **Note**: It is likely that you might encounter some errors when running the above commands for the first time. This depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described above.
 
 
 
