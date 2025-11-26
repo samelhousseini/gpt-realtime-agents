@@ -98,9 +98,51 @@ The quickest way to stand up the full solution is with the [Azure Developer CLI 
 
 ---
 
-## Manual setup for local development
+
+## Set up Ngrok for local development and Container deployment
+
+ngrok is only needed if you are using Azure Communication Services (ACS) for telephony features during local development. It creates a secure tunnel to your local server so ACS can send call events and audio streams to your application. If you are not using ACS, you can skip this section.
+
+**Callback configuration with ngrok:**
+
+For local development with Azure Communication Services, you need to expose your local backend to the internet so ACS can send callbacks to your application. [ngrok](https://ngrok.com/) is a tunneling tool that creates a secure public URL forwarding to your local server.
+
+1. **Install ngrok:** Download from [ngrok.com](https://ngrok.com/download), sign up for a free account, and then connect your account. Instructions are available [here](https://ngrok.com/docs/getting-started#windows).
+2. **Start ngrok tunnel:**
+   ```powershell
+   ngrok http 8080
+   ```
+3. **Copy the forwarding URLs** from ngrok's output (e.g., `https://abc123.ngrok-free.app`)
+4. **Update your `.env` file:**
+   - `CALLBACK_EVENTS_URI` - HTTP callback endpoint (e.g., `https://abc123.ngrok-free.app/api/callbacks`)
+   - `CALLBACK_URI_HOST` - WebSocket callback endpoint (e.g., `wss://abc123.ngrok-free.app`)
+   
+
+**What is ngrok used for in this project?**
+When using Azure Communication Services for phone call integration, ACS needs to send real-time events (call status, audio streams, DTMF tones) back to your application. In production, your app would have a public HTTPS endpoint. During local development, ngrok creates a temporary public URL that tunnels traffic to your `localhost:8080`, allowing ACS to reach your local backend. This is only needed if you're testing the telephony/ACS features.
+
+## Container deployment (preferred for local development)
+
+The repository includes a Dockerfile that builds the React app and bundles it with the FastAPI service.
+
+```powershell
+docker build -t gpt-realtime-agents .
+docker run -p 8080:8080 --env-file .env gpt-realtime-agents
+```
+
+This multi-stage build does the following:
+- Installs Node dependencies, runs `npm ci`, and executes `npm run build` for the React project.
+- Installs Python dependencies, copies the FastAPI backend, and bundles the built frontend into `frontend/dist`.
+- Launches the combined application using Uvicorn on port 8080.
+
+> **Note**: Make sure to set up ngrok if you are using Azure Communication Services for telephony features during local development.
+
+
+## Manual setup for local development (not the preferred method)
 
 If you prefer to run everything locally, follow the condensed checklist below.
+
+> **Note**: Manual setup for local development is not preferred because it is likely that you might encounter some errors when running the below commands for the first time. This depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described below. 
 
 ### Prerequisites
 - Python 3.10+
@@ -131,31 +173,13 @@ Update the placeholders in `.env` with your Azure resource details:
 - `ACS_PHONE_NUMBER` - ACS phone number (e.g., `+18005551234`)
 
 
-**Optional - Callback configuration with ngrok:**
-
-For local development with Azure Communication Services, you need to expose your local backend to the internet so ACS can send callbacks to your application. [ngrok](https://ngrok.com/) is a tunneling tool that creates a secure public URL forwarding to your local server.
-
-1. **Install ngrok:** Download from [ngrok.com](https://ngrok.com/download), sign up for a free account, and then connect your account. Instructions are available [here](https://ngrok.com/docs/getting-started#windows).
-2. **Start ngrok tunnel:**
-   ```powershell
-   ngrok http 8080
-   ```
-3. **Copy the forwarding URLs** from ngrok's output (e.g., `https://abc123.ngrok-free.app`)
-4. **Update your `.env` file:**
-   - `CALLBACK_EVENTS_URI` - HTTP callback endpoint (e.g., `https://abc123.ngrok-free.app/api/callbacks`)
-   - `CALLBACK_URI_HOST` - WebSocket callback endpoint (e.g., `wss://abc123.ngrok-free.app`)
-
-**What is ngrok used for in this project?**
-When using Azure Communication Services for phone call integration, ACS needs to send real-time events (call status, audio streams, DTMF tones) back to your application. In production, your app would have a public HTTPS endpoint. During local development, ngrok creates a temporary public URL that tunnels traffic to your `localhost:8080`, allowing ACS to reach your local backend. This is only needed if you're testing the telephony/ACS features.
-
-
 ### Install dependencies
 - **Using uv (recommended)**
   ```powershell
   conda create -n gpt-realtime-agents python=3.10 -y
   conda activate gpt-realtime-agents
   pip install uv
-  uv pip install -e .
+  uv pip install -r pyproject.toml
   ```
 
 
@@ -166,25 +190,17 @@ npm ci
 npm run build
 cd ..
 
-uv run uvicorn audio_backend.backend:app --host 0.0.0.0 --port 8080
+uvicorn audio_backend.backend:app --host 0.0.0.0 --port 8080
 ```
 Navigate to `http://localhost:8080/` to verify the React UI and API endpoints.
 
-## Container deployment
+> **Note**: Make sure to set up ngrok if you are using Azure Communication Services for telephony features during local development.
+> **Note**: It is likely that you might encounter some errors when running the above commands for the first time. This depends on your npm version, OS, and other variables. For best results, it is preferred to use the container deployment method described below.
 
-The repository includes a Dockerfile that builds the React app and bundles it with the FastAPI service.
 
-```powershell
-docker build -t gpt-realtime-agents .
-docker run -p 8080:8080 --env-file .env gpt-realtime-agents
-```
 
-This multi-stage build does the following:
-- Installs Node dependencies, runs `npm ci`, and executes `npm run build` for the React project.
-- Installs Python dependencies, copies the FastAPI backend, and bundles the built frontend into `frontend/dist`.
-- Launches the combined application using Uvicorn on port 8080.
 
-### Endpoints
+## Endpoints
 
 **Core Realtime API:**
 - `POST /api/session` – returns `{ session_id, ephemeral_key, webrtc_url }`
