@@ -126,8 +126,8 @@ When using Azure Communication Services for phone call integration, ACS needs to
 The repository includes a Dockerfile that builds the React app and bundles it with the FastAPI service.
 
 ```powershell
-docker build -t gpt-realtime-agents .
-docker run -p 8080:8080 --env-file .env gpt-realtime-agents
+docker build -t gpt-realtime-agents:local .
+docker run --rm -p 8080:8080 --env-file .env gpt-realtime-agents:local  
 ```
 
 This multi-stage build does the following:
